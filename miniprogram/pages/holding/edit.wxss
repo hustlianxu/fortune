@@ -3,14 +3,14 @@
 .page-title { font-size: 40rpx; font-weight: 700; }
 
 .form-group { margin-bottom: 24rpx; }
-.form-label { font-size: 26rpx; color: #8e8e93; display: block; margin-bottom: 8rpx; }
+.form-label { font-size: 26rpx; color: var(--text-tertiary); display: block; margin-bottom: 8rpx; }
 
 .input-field {
   width: 100%;
   padding: 24rpx 24rpx;
   min-height: 88rpx;
   background: var(--bg-input);
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   border: 2rpx solid var(--border-color);
   font-size: 28rpx;
   box-sizing: border-box;
@@ -21,15 +21,15 @@
   display: flex;
   justify-content: space-between;
   padding: 20rpx 24rpx;
-  
+
   background: var(--bg-input);
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   border: 2rpx solid var(--border-color);
 }
-.picker-arrow { font-size: 24rpx; color: #8e8e93; }
+.picker-arrow { font-size: 24rpx; color: var(--text-tertiary); }
 
 .btn-primary {
-  background: #6c63ff;
+  background: var(--primary-color);
   color: #fff;
   padding: 24rpx;
   border-radius: 16rpx;
@@ -41,7 +41,7 @@
 /* 代码查询提示 */
 .lookup-hint {
   font-size: 22rpx;
-  color: #52c41a;
+  color: var(--color-down);
   margin-top: 6rpx;
   padding-left: 8rpx;
 }
@@ -51,7 +51,7 @@
   margin-top: 8rpx;
   background: var(--bg-card);
   border: 2rpx solid var(--border-color);
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   max-height: 400rpx;
   overflow-y: auto;
 }
@@ -60,13 +60,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 20rpx 24rpx;
-  border-bottom: 1rpx solid #f0f0f0;
+  border-bottom: 1rpx solid var(--divider-color);
 }
 .suggestion-item:last-child { border-bottom: none; }
-.suggestion-item:active { background: #f0eeff; }
+.suggestion-item:active { background: var(--primary-soft); }
 .suggestion-left { display: flex; flex-direction: column; }
 .suggestion-name { font-size: 28rpx; font-weight: 500; }
-.suggestion-code { font-size: 22rpx; color: #aeaeb2; margin-top: 4rpx; }
+.suggestion-code { font-size: 22rpx; color: var(--text-tertiary); margin-top: 4rpx; }
 .suggestion-type {
   font-size: 22rpx;
   padding: 4rpx 12rpx;

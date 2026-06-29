@@ -1,21 +1,24 @@
 <!-- 资产看板首页 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
+
 <view class="page">
   <!-- 总资产头部 -->
   <view class="header-card">
     <view class="header-total">
       <text class="header-label">总资产</text>
-      <text class="header-pnl {{pnlColor}}">{{pnlArrow}} {{summary.totalPnLPercent}}</text>
+      <text class="header-pnl {{pnlColor}}">{{pnlArrow}} {{pnlPercentText}}</text>
     </view>
-    <text class="header-amount">¥ {{formatMoney(summary.totalAssets)}}</text>
+    <text class="header-amount">¥ {{fmt.formatMoney(summary.totalAssets)}}</text>
     <view class="header-stats">
       <view class="stat-item">
         <text class="stat-label">今日收益</text>
-        <text class="stat-value {{todayPnlColor}}">{{formatMoney(summary.todayPnL)}}</text>
+        <text class="stat-value {{todayPnlColor}}">{{fmt.formatMoney(summary.todayPnL)}}</text>
       </view>
       <view class="stat-divider"></view>
       <view class="stat-item">
         <text class="stat-label">累计收益</text>
-        <text class="stat-value {{pnlColor}}">{{formatMoney(summary.totalPnL)}}</text>
+        <text class="stat-value {{pnlColor}}">{{fmt.formatMoney(summary.totalPnL)}}</text>
       </view>
       <view class="stat-divider"></view>
       <view class="stat-item">
@@ -48,7 +51,7 @@
       <view class="legend-item" wx:for="{{distributionList}}" wx:key="name">
         <view class="legend-dot" style="background: {{item.color}}"></view>
         <text class="legend-name">{{item.name}}</text>
-        <text class="legend-value">¥{{formatMoney(item.value)}}</text>
+        <text class="legend-value">¥{{fmt.formatMoney(item.value)}}</text>
         <text class="legend-percent">{{item.percent}}%</text>
       </view>
     </view>
@@ -67,19 +70,19 @@
       <view class="account-header">
         <view class="account-info">
           <text class="account-name">{{item.name}}</text>
-          <text class="account-type-tag">{{platformName(item.platform || item.type)}}</text>
+          <text class="account-type-tag">{{c.platformName(item.platform || item.type)}}</text>
         </view>
-        <view class="account-pnl {{item.pnl > 0 ? 'price-up' : (item.pnl < 0 ? 'price-down' : '')}}">
-          <text>{{item.pnl > 0 ? '+' : ''}}{{formatMoney(item.pnl)}}</text>
-          <text class="pnl-percent">({{item.pnl_percent.toFixed(2)}}%)</text>
+        <view class="account-pnl {{fmt.pnlClass(item.pnl)}}">
+          <text>{{fmt.pnlSign(item.pnl)}}{{fmt.formatMoney(item.pnl)}}</text>
+          <text class="pnl-percent">({{fmt.formatPercent(item.pnl_percent, false)}})</text>
         </view>
       </view>
       <view class="account-body">
-        <text class="account-value">¥{{formatMoney(item.total_value)}}</text>
+        <text class="account-value">¥{{fmt.formatMoney(item.total_value)}}</text>
         <text class="account-holdings">持仓 {{item.holdingCount || 0}} 只</text>
       </view>
       <view class="account-footer" wx:if="{{item.cash_balance}}">
-        <text class="account-cash">含余额: ¥{{formatMoney(item.cash_balance)}}</text>
+        <text class="account-cash">含余额: ¥{{fmt.formatMoney(item.cash_balance)}}</text>
       </view>
     </view>
     <view class="empty-state" wx:if="{{!summary.accounts || summary.accounts.length === 0}}">

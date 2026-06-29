@@ -3,11 +3,12 @@
  * 定时触发: 交易日 16:30
  *
  * 从 holdings 获取所有 product_code，按类型分批调用行情接口
- * 更新 price_cache 集合 和 holdings 的 current_price/market_value/pnl
+ * 更新 price_cache 集合 和 holdings 的 current_price/market_value/pnl/daily_change
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
+const http = require('./http');
 
 /**
  * 腾讯行情接口 - 批量查询
@@ -19,8 +20,7 @@ async function fetchTencentPrices(codes) {
   const url = `https://qt.gtimg.cn/q=${queryStr}`;
 
   try {
-    const response = await fetch(url);
-    const text = await response.text();
+    const text = await http.getText(url);
     return parseTencentResponse(text);
   } catch (err) {
     console.error('[fetchTencentPrices] error:', err);
@@ -39,7 +39,7 @@ function parseTencentResponse(text) {
     if (!line.includes('="')) continue;
     try {
       const parts = line.split('=');
-      const value = parts[1]?.replace(/^"|"$/g, '');
+      const value = parts[1] ? parts[1].replace(/^"|"$/g, '') : '';
       if (!value) continue;
 
       const fields = value.split('~');
@@ -75,8 +75,7 @@ async function fetchFundPrices(fundCodes) {
   for (let i = 0; i < fundCodes.length; i += batchSize) {
     const batch = fundCodes.slice(i, i + batchSize);
     const promises = batch.map(code =>
-      fetch(`https://fundgz.1234567.com.cn/js/${code}.js`)
-        .then(r => r.text())
+      http.getText(`https://fundgz.1234567.com.cn/js/${code}.js`)
         .then(text => {
           // jsonpgz({"fundcode":"110011","name":"...","jzrq":"...","dwjz":"...","gsz":"...","gszzl":"..."});
           const match = text.match(/jsonpgz\(({.*?})\)/);
@@ -85,9 +84,11 @@ async function fetchFundPrices(fundCodes) {
             const price = parseFloat(data.gsz) || 0;
             const changePercent = parseFloat(data.gszzl) || 0;
             if (price > 0) {
+              // 基金估算的 gszzl 是当日涨跌幅，反推 change 用于今日收益
+              const change = changePercent !== 0 ? price * changePercent / 100 : 0;
               result[code] = {
                 price,
-                change: 0,
+                change,
                 changePercent,
                 name: data.name || '',
               };
@@ -122,11 +123,13 @@ exports.main = async (event) => {
       const type = h.product_type;
       const exchange = (h.exchange || 'SH').toLowerCase();
 
-      if (['stock', 'etf', 'lof'].includes(type)) {
+      if (['stock', 'etf', 'lof', 'hk_stock', 'us_stock'].includes(type)) {
         // 腾讯行情需要前缀: sh / sz / hk
-        const prefix = exchange === 'sz' ? 'sz' : (exchange === 'hk' ? 'hk' : 'sh');
+        let prefix = 'sh';
+        if (exchange === 'sz') prefix = 'sz';
+        else if (exchange === 'hk') prefix = 'hk';
         stockEtfCodes.push(`${prefix}${code}`);
-      } else if (type.startsWith('fund')) {
+      } else if (type && type.indexOf('fund') === 0) {
         fundCodes.push(code);
       }
     }
@@ -138,14 +141,16 @@ exports.main = async (event) => {
     ]);
 
     // 合并价格
-    const allPrices = { ...stockPrices, ...fundPrices };
+    const allPrices = Object.assign({}, stockPrices, fundPrices);
 
-    // 4. 更新 price_cache 和 holdings
-    const today = new Date().toISOString().split('T')[0];
+    // 4. 更新 holdings
     let updateCount = 0;
 
     for (const h of holdings) {
-      const priceData = allPrices[h.product_code] || allPrices[`sh${h.product_code}`] || allPrices[`sz${h.product_code}`];
+      const priceData = allPrices[h.product_code]
+        || allPrices[`sh${h.product_code}`]
+        || allPrices[`sz${h.product_code}`]
+        || allPrices[`hk${h.product_code}`];
       if (!priceData || !priceData.price) continue;
 
       const currentPrice = priceData.price;
@@ -153,14 +158,16 @@ exports.main = async (event) => {
       const costValue = h.cost_value || h.shares * h.cost_price;
       const pnl = marketValue - costValue;
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
+      // 当日变动额（用于今日收益展示）
+      const dailyChange = priceData.change || 0;
 
-      // 更新 holdings
       await db.collection('holdings').doc(h._id).update({
         data: {
           current_price: currentPrice,
           market_value: marketValue,
           pnl,
           pnl_percent: pnlPercent,
+          daily_change: dailyChange,
           price_updated_at: db.serverDate(),
         },
       });
@@ -169,18 +176,24 @@ exports.main = async (event) => {
     }
 
     // 5. 更新 price_cache
+    const today = new Date().toISOString().split('T')[0];
     for (const [code, data] of Object.entries(allPrices)) {
       // 移除可能的前缀（sh/sz/hk）
       const cleanCode = code.replace(/^(sh|sz|hk)/, '');
-      await db.collection('price_cache').doc(`${cleanCode}_${today}`).set({
-        product_code: cleanCode,
-        product_type: 'stock',
-        price: data.price,
-        change: data.change || 0,
-        change_percent: data.changePercent || 0,
-        date: today,
-        updated_at: db.serverDate(),
-      });
+      try {
+        await db.collection('price_cache').doc(`${cleanCode}_${today}`).set({
+          data: {
+            product_code: cleanCode,
+            price: data.price,
+            change: data.change || 0,
+            change_percent: data.changePercent || 0,
+            date: today,
+            updated_at: db.serverDate(),
+          },
+        });
+      } catch (e) {
+        // ignore cache write errors
+      }
     }
 
     return {

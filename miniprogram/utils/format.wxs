@@ -1,0 +1,123 @@
+/**
+ * 格式化工具 - WXS 版本
+ * 用于在 WXML 模板中调用格式化函数
+ * 注意：WXS 不支持 ES6+ 语法，只能用 var / function
+ */
+
+var formatMoney = function (value, decimals) {
+  if (value === null || value === undefined || value === '' || isNaN(value)) return '--';
+  var d = decimals === undefined ? 2 : decimals;
+  var prefix = value < 0 ? '-' : '';
+  var abs = Math.abs(value);
+  var fixed = abs.toFixed(d);
+  var parts = fixed.split('.');
+  var intPart = parts[0];
+  var decPart = parts.length > 1 ? parts[1] : '';
+  // 千分位
+  var formatted = '';
+  var count = 0;
+  for (var i = intPart.length - 1; i >= 0; i--) {
+    if (count > 0 && count % 3 === 0) {
+      formatted = ',' + formatted;
+    }
+    formatted = intPart[i] + formatted;
+    count++;
+  }
+  return prefix + formatted + (d > 0 ? '.' + decPart : '');
+};
+
+var formatPercent = function (value, showSign) {
+  if (value === null || value === undefined || value === '' || isNaN(value)) return '--';
+  var sign = showSign === false ? '' : (value > 0 ? '+' : '');
+  return sign + value.toFixed(2) + '%';
+};
+
+var formatQuantity = function (value) {
+  if (value === null || value === undefined || value === '' || isNaN(value)) return '--';
+  if (value >= 100000000) return (value / 100000000).toFixed(2) + '亿';
+  if (value >= 10000) return (value / 10000).toFixed(2) + '万';
+  return value.toFixed(0);
+};
+
+var pad = function (n) {
+  return n < 10 ? '0' + n : '' + n;
+};
+
+var formatDate = function (date, format) {
+  if (!date) return '--';
+  var d = getDate(date);
+  if (isNaN(d.getTime())) return '--';
+
+  var year = d.getFullYear();
+  var month = pad(d.getMonth() + 1);
+  var day = pad(d.getDate());
+  var hours = pad(d.getHours());
+  var minutes = pad(d.getMinutes());
+
+  var fmt = format || 'YYYY-MM-DD';
+  if (fmt === 'YYYY-MM-DD') return year + '-' + month + '-' + day;
+  if (fmt === 'MM-DD') return month + '-' + day;
+  if (fmt === 'YYYY/MM/DD') return year + '/' + month + '/' + day;
+  if (fmt === 'YYYY年MM月DD日') return year + '年' + month + '月' + day + '日';
+  if (fmt === 'MM月DD日') return month + '月' + day + '日';
+  if (fmt === 'MM-DD HH:mm') return month + '-' + day + ' ' + hours + ':' + minutes;
+  if (fmt === 'YYYY-MM-DD HH:mm') return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes;
+  return year + '-' + month + '-' + day;
+};
+
+var formatDateTime = function (date) {
+  if (!date) return '--';
+  var d = getDate(date);
+  if (isNaN(d.getTime())) return '--';
+  return formatDate(date, 'YYYY-MM-DD HH:mm');
+};
+
+/**
+ * 相对时间格式化（X分钟前 / X小时前 / MM-DD）
+ */
+var formatTimeAgo = function (dateStr) {
+  if (!dateStr) return '';
+  var d = getDate(dateStr);
+  if (isNaN(d.getTime())) return '';
+  var now = getDate();
+  var diff = now.getTime() - d.getTime();
+  if (diff < 0) return formatDate(dateStr, 'MM-DD');
+  if (diff < 3600000) {
+    var mins = Math.floor(diff / 60000);
+    return (mins < 1 ? 1 : mins) + '分钟前';
+  }
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return formatDate(dateStr, 'MM-DD');
+};
+
+var getPriceColor = function (value) {
+  if (!value || value === 0 || isNaN(value)) return 'price-flat';
+  return value > 0 ? 'price-up' : 'price-down';
+};
+
+var getPriceArrow = function (value) {
+  if (!value || value === 0 || isNaN(value)) return '→';
+  return value > 0 ? '↑' : '↓';
+};
+
+var pnlSign = function (value) {
+  return value >= 0 ? '+' : '';
+};
+
+var pnlClass = function (value) {
+  if (!value || value === 0 || isNaN(value)) return '';
+  return value > 0 ? 'price-up' : 'price-down';
+};
+
+module.exports = {
+  formatMoney: formatMoney,
+  formatPercent: formatPercent,
+  formatQuantity: formatQuantity,
+  formatDate: formatDate,
+  formatDateTime: formatDateTime,
+  formatTimeAgo: formatTimeAgo,
+  getPriceColor: getPriceColor,
+  getPriceArrow: getPriceArrow,
+  pnlSign: pnlSign,
+  pnlClass: pnlClass,
+};

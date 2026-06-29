@@ -1,4 +1,6 @@
 <!-- 添加/编辑持仓 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
 <view class="page">
   <view class="card">
     <text class="page-title">{{isEdit ? '编辑持仓' : '添加持仓'}}</text>
@@ -40,7 +42,7 @@
             <text class="suggestion-name">{{item.name}}</text>
             <text class="suggestion-code">{{item.code}}</text>
           </view>
-          <text class="suggestion-type tag-{{item.type}}">{{typeLabel(item.type)}}</text>
+          <text class="suggestion-type tag-{{item.type}}">{{c.productTypeName(item.type)}}</text>
         </view>
       </view>
     </view>

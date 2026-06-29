@@ -6,7 +6,7 @@
 .report-meta text {
   display: block;
   font-size: 24rpx;
-  color: #8e8e93;
+  color: var(--text-tertiary);
   margin-bottom: 4rpx;
 }
 
@@ -23,8 +23,8 @@
   font-size: 28rpx;
   line-height: 1.7;
   padding: 16rpx;
-  background: #f8f8fa;
-  border-radius: 12rpx;
+  background: var(--primary-soft);
+  border-radius: var(--radius-sm);
 }
 
 .finding-row {
@@ -38,10 +38,10 @@
   line-height: 1.8;
 }
 
-.risk-badge-conservative { color: #52c41a; font-weight: 600; }
-.risk-badge-steady { color: #1890ff; font-weight: 600; }
-.risk-badge-aggressive { color: #fa8c16; font-weight: 600; }
-.risk-badge-radical { color: #f5222d; font-weight: 600; }
-.risk-badge-low { color: #52c41a; font-weight: 600; }
-.risk-badge-medium { color: #1890ff; font-weight: 600; }
-.risk-badge-high { color: #f5222d; font-weight: 600; }
+.risk-badge-conservative { color: var(--color-down); font-weight: 600; }
+.risk-badge-steady { color: var(--primary-color); font-weight: 600; }
+.risk-badge-aggressive { color: var(--color-up); font-weight: 600; }
+.risk-badge-radical { color: var(--color-up); font-weight: 600; }
+.risk-badge-low { color: var(--color-down); font-weight: 600; }
+.risk-badge-medium { color: var(--primary-color); font-weight: 600; }
+.risk-badge-high { color: var(--color-up); font-weight: 600; }

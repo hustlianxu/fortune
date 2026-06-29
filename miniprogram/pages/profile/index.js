@@ -32,8 +32,41 @@ Page({
     wx.navigateTo({ url: '/pages/holdings/index' });
   },
 
+  onGoToTransactions() {
+    wx.navigateTo({ url: '/pages/transactions/index' });
+  },
+
   onGoToImport() {
     wx.navigateTo({ url: '/pages/import/index' });
+  },
+
+  onRebuildHoldings() {
+    wx.showModal({
+      title: '重建持仓',
+      content: '将根据全部交易流水重新计算持仓份额与成本（幂等，可重复执行）。是否继续？',
+      success: async (res) => {
+        if (!res.confirm) return;
+        wx.showLoading({ title: '重建中...' });
+        try {
+          const r = await wx.cloud.callFunction({ name: 'rebuild_holdings' });
+          const result = r.result || {};
+          wx.hideLoading();
+          if (result.success) {
+            wx.showModal({
+              title: '重建完成',
+              content: result.message || '已完成',
+              showCancel: false,
+            });
+          } else {
+            wx.showToast({ title: result.message || '重建失败', icon: 'none' });
+          }
+        } catch (err) {
+          console.error('[Rebuild] error:', err);
+          wx.hideLoading();
+          wx.showToast({ title: '重建失败', icon: 'none' });
+        }
+      },
+    });
   },
 
   onGoToExport() {

@@ -7,28 +7,34 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
+const http = require('./http');
 
 const NEWS_SOURCES = [
   {
     name: '东方财富',
     url: 'https://rsshub.app/eastmoney/search?keyword=&type=news',
-    parse: async (text) => {
+    parse: function (text) {
       // RSS 解析
-      const items = [];
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      const titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
-      const linkRegex = /<link>(.*?)<\/link>/;
-      const descRegex = /<description><!\[CDATA\[(.*?)\]\]><\/description>/;
-      const pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
+      var items = [];
+      var itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      var titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
+      var linkRegex = /<link>(.*?)<\/link>/;
+      var descRegex = /<description><!\[CDATA\[(.*?)\]\]><\/description>/;
+      var pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
 
-      let match;
+      var match;
       while ((match = itemRegex.exec(text)) !== null) {
-        const item = match[1];
-        const title = titleRegex.exec(item)?.[1] || '';
-        const link = linkRegex.exec(item)?.[1] || '';
-        const desc = descRegex.exec(item)?.[1] || '';
-        const pubDate = pubDateRegex.exec(item)?.[1] || '';
-        items.push({ title, url: link, summary: desc.replace(/<[^>]+>/g, '').slice(0, 200), pubDate });
+        var item = match[1];
+        var title = (titleRegex.exec(item) || [])[1] || '';
+        var link = (linkRegex.exec(item) || [])[1] || '';
+        var desc = (descRegex.exec(item) || [])[1] || '';
+        var pubDate = (pubDateRegex.exec(item) || [])[1] || '';
+        items.push({
+          title: title,
+          url: link,
+          summary: desc.replace(/<[^>]+>/g, '').slice(0, 200),
+          pubDate: pubDate,
+        });
       }
       return items;
     }
@@ -36,21 +42,21 @@ const NEWS_SOURCES = [
   {
     name: '36氪快讯',
     url: 'https://rsshub.app/36kr/motif',
-    parse: async (text) => {
-      const items = [];
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      const titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
-      const linkRegex = /<link>(.*?)<\/link>/;
-      const pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
+    parse: function (text) {
+      var items = [];
+      var itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      var titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
+      var linkRegex = /<link>(.*?)<\/link>/;
+      var pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
 
-      let match;
+      var match;
       while ((match = itemRegex.exec(text)) !== null) {
-        const item = match[1];
+        var item = match[1];
         items.push({
-          title: titleRegex.exec(item)?.[1] || '',
-          url: linkRegex.exec(item)?.[1] || '',
+          title: (titleRegex.exec(item) || [])[1] || '',
+          url: (linkRegex.exec(item) || [])[1] || '',
           summary: '',
-          pubDate: pubDateRegex.exec(item)?.[1] || '',
+          pubDate: (pubDateRegex.exec(item) || [])[1] || '',
         });
       }
       return items;
@@ -92,9 +98,10 @@ exports.main = async (event) => {
     // 并行抓取所有源
     for (const source of NEWS_SOURCES) {
       try {
-        const response = await fetch(source.url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const text = await response.text();
-        const items = await source.parse(text);
+        const text = await http.getText(source.url, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const items = source.parse(text);
         items.forEach(item => {
           allNews.push({
             title: item.title,
@@ -141,7 +148,13 @@ exports.main = async (event) => {
     const insertPromises = saveNews.map(item =>
       db.collection('news_cache').add({
         data: {
-          ...item,
+          title: item.title,
+          summary: item.summary,
+          source: item.source,
+          source_url: item.source_url,
+          publish_time: item.publish_time,
+          category: item.category,
+          importance: item.importance,
           fetched_at: db.serverDate(),
           created_at: db.serverDate(),
         },

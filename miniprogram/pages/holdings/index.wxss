@@ -1,32 +1,32 @@
-/* 持仓列表 */
+/* 持仓列表 - v0.2.0 清爽化 */
 .page { padding-bottom: 40rpx; }
-.page-title { font-size: 40rpx; font-weight: 700; }
+.page-title { font-size: 36rpx; font-weight: 600; color: var(--text-primary); }
 
 .acc-header {
   display: flex;
   align-items: center;
-  padding: 16rpx 0;
-  border-bottom: 2rpx solid #f0f0f0;
+  padding: var(--space-sm) 0;
+  border-bottom: 2rpx solid var(--divider-color);
 }
-.acc-name { flex: 1; font-size: 30rpx; font-weight: 600; }
-.acc-value { font-size: 28rpx; font-weight: 500; margin-right: 16rpx; }
-.toggle-icon { font-size: 24rpx; color: #8e8e93; }
+.acc-name { flex: 1; font-size: 30rpx; font-weight: 600; color: var(--text-primary); }
+.acc-value { font-size: 28rpx; font-weight: 500; color: var(--text-primary); margin-right: var(--space-md); }
+.toggle-icon { font-size: 24rpx; color: var(--text-tertiary); }
 
 .holding-item {
-  padding: 20rpx 0;
-  border-bottom: 1rpx solid #f5f5f5;
+  padding: var(--space-md) 0;
+  border-bottom: 1rpx solid var(--divider-color);
 }
 .holding-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 8rpx;
+  margin-bottom: var(--space-xs);
 }
-.holding-name { font-size: 28rpx; font-weight: 500; }
+.holding-name { font-size: 28rpx; font-weight: 500; color: var(--text-primary); }
 .holding-pnl { font-size: 26rpx; font-weight: 500; }
-.holding-body { display: flex; align-items: center; margin-bottom: 8rpx; }
-.holding-code { font-size: 24rpx; color: #8e8e93; margin-right: 12rpx; }
-.holding-footer { display: flex; gap: 24rpx; }
-.holding-footer text { font-size: 22rpx; color: #aeaeb2; }
+.holding-body { display: flex; align-items: center; margin-bottom: var(--space-xs); }
+.holding-code { font-size: 24rpx; color: var(--text-tertiary); margin-right: var(--space-sm); }
+.holding-footer { display: flex; gap: var(--space-md); }
+.holding-footer text { font-size: 22rpx; color: var(--text-tertiary); }
 
-.acc-footer { padding: 12rpx 0; }
-.expand-hint { font-size: 24rpx; color: #aeaeb2; }
+.acc-footer { padding: var(--space-sm) 0; }
+.expand-hint { font-size: 24rpx; color: var(--text-tertiary); }

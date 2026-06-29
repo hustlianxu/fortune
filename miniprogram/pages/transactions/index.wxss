@@ -1,1 +1,109 @@
-/* pages/transactions/index.wxss */
+/* 交易流水列表 - v0.2.0 清爽化 */
+.page { padding-bottom: 160rpx; }
+.page-head { display: flex; flex-direction: column; }
+.page-title { font-size: 36rpx; font-weight: 600; color: var(--text-primary); }
+.page-desc { font-size: 24rpx; color: var(--text-tertiary); margin-top: var(--space-xs); }
+
+/* 汇总卡 */
+.summary-card { display: flex; flex-direction: column; gap: var(--space-md); }
+.summary-row { display: flex; }
+.summary-row-2 { padding-top: var(--space-md); border-top: 1rpx dashed var(--border-color); }
+.summary-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.summary-label { font-size: 22rpx; color: var(--text-tertiary); margin-bottom: var(--space-xs); }
+.summary-value { font-size: 30rpx; font-weight: 600; }
+
+/* 筛选 */
+.filter-card { display: flex; gap: var(--space-sm); }
+.filter-card picker { flex: 1; }
+.filter-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  font-size: 26rpx;
+  color: var(--text-primary);
+}
+.filter-arrow { font-size: 22rpx; color: var(--text-tertiary); }
+
+/* 分组 */
+.txn-group { padding-bottom: var(--space-xs); }
+.group-date {
+  font-size: 24rpx;
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1rpx solid var(--divider-color);
+}
+
+/* 单条流水 */
+.txn-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md) 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.txn-item:last-child { border-bottom: none; }
+.txn-left { display: flex; align-items: center; flex: 1; min-width: 0; }
+
+/* 交易类型徽章 - 浅底深字 + 左侧色条，不再复用涨跌色 */
+.txn-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 14rpx;
+  border-radius: var(--radius-sm);
+  font-size: 22rpx;
+  margin-right: var(--space-md);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.txn-buy { background: var(--txn-buy-soft); color: var(--txn-buy); }
+.txn-sell { background: var(--txn-sell-soft); color: var(--txn-sell); }
+.txn-in { background: var(--txn-income-soft); color: var(--txn-income); }
+.txn-out { background: var(--txn-transfer-soft); color: var(--txn-transfer); }
+.txn-flat { background: var(--txn-transfer-soft); color: var(--txn-transfer); }
+
+.txn-info { display: flex; flex-direction: column; min-width: 0; }
+.txn-product { font-size: 28rpx; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txn-meta { font-size: 22rpx; color: var(--text-tertiary); margin-top: 4rpx; }
+
+.txn-right { display: flex; flex-direction: column; align-items: flex-end; }
+/* 金额颜色沿用徽章语义色，不与涨跌色混用 */
+.txn-amount { font-size: 30rpx; font-weight: 600; }
+.txn-amount.txn-buy { color: var(--txn-buy); }
+.txn-amount.txn-sell { color: var(--txn-sell); }
+.txn-amount.txn-in { color: var(--txn-income); }
+.txn-amount.txn-out { color: var(--txn-transfer); }
+.txn-amount.txn-flat { color: var(--text-secondary); }
+
+.txn-actions { margin-top: var(--space-xs); }
+.txn-action-del {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  padding: 4rpx 12rpx;
+}
+.txn-action-del:active { color: var(--color-up); }
+
+/* 空状态 */
+.empty-state { align-items: center; }
+.empty-hint { font-size: 24rpx; color: var(--text-tertiary); margin-top: var(--space-sm); }
+
+/* 浮动添加按钮 */
+.fab {
+  position: fixed;
+  right: 40rpx;
+  bottom: 60rpx;
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 56rpx;
+  text-align: center;
+  line-height: 100rpx;
+  box-shadow: 0 8rpx 24rpx rgba(var(--primary-color-rgb), 0.35);
+}
+.fab:active { opacity: 0.85; }

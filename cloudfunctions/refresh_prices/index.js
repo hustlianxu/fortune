@@ -6,15 +6,14 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
+const http = require('./http');
 
-// 复用 sync_prices 的逻辑
 async function fetchTencentPrices(codes) {
   if (!codes || codes.length === 0) return {};
   const queryStr = codes.join(',');
   const url = `https://qt.gtimg.cn/q=${queryStr}`;
   try {
-    const response = await fetch(url);
-    const text = await response.text();
+    const text = await http.getText(url);
     return parseTencentResponse(text);
   } catch (err) {
     console.error('[fetchTencentPrices] error:', err);
@@ -29,7 +28,7 @@ function parseTencentResponse(text) {
     if (!line.includes('="')) continue;
     try {
       const parts = line.split('=');
-      const value = parts[1]?.replace(/^"|"$/g, '');
+      const value = parts[1] ? parts[1].replace(/^"|"$/g, '') : '';
       if (!value) continue;
       const fields = value.split('~');
       const code = parts[0].split('_')[1] || '';
@@ -54,17 +53,18 @@ async function fetchFundPrices(fundCodes) {
   const result = {};
   for (const code of fundCodes) {
     try {
-      const response = await fetch(`https://fundgz.1234567.com.cn/js/${code}.js`);
-      const text = await response.text();
+      const text = await http.getText(`https://fundgz.1234567.com.cn/js/${code}.js`);
       const match = text.match(/jsonpgz\(({.*?})\)/);
       if (match) {
         const data = JSON.parse(match[1]);
         const price = parseFloat(data.gsz) || 0;
+        const changePercent = parseFloat(data.gszzl) || 0;
         if (price > 0) {
+          const change = changePercent !== 0 ? price * changePercent / 100 : 0;
           result[code] = {
             price,
-            change: 0,
-            changePercent: parseFloat(data.gszzl) || 0,
+            change,
+            changePercent,
             name: data.name || '',
           };
         }
@@ -88,10 +88,12 @@ exports.main = async (event) => {
       const type = h.product_type;
       const exchange = (h.exchange || 'SH').toLowerCase();
       const code = h.product_code;
-      if (['stock', 'etf', 'lof'].includes(type)) {
-        const prefix = exchange === 'sz' ? 'sz' : (exchange === 'hk' ? 'hk' : 'sh');
+      if (['stock', 'etf', 'lof', 'hk_stock', 'us_stock'].includes(type)) {
+        let prefix = 'sh';
+        if (exchange === 'sz') prefix = 'sz';
+        else if (exchange === 'hk') prefix = 'hk';
         stockCodes.push(`${prefix}${code}`);
-      } else if (type && type.startsWith('fund')) {
+      } else if (type && type.indexOf('fund') === 0) {
         fundCodes.push(code);
       }
     }
@@ -101,19 +103,21 @@ exports.main = async (event) => {
       fundCodes.length > 0 ? fetchFundPrices(fundCodes) : {},
     ]);
 
-    const allPrices = { ...stockPrices, ...fundPrices };
+    const allPrices = Object.assign({}, stockPrices, fundPrices);
     let updateCount = 0;
 
     for (const h of holdings) {
-      const priceData = allPrices[h.product_code] ||
-        allPrices[`sh${h.product_code}`] ||
-        allPrices[`sz${h.product_code}`];
+      const priceData = allPrices[h.product_code]
+        || allPrices[`sh${h.product_code}`]
+        || allPrices[`sz${h.product_code}`]
+        || allPrices[`hk${h.product_code}`];
       if (!priceData || !priceData.price) continue;
 
       const marketValue = h.shares * priceData.price;
       const costValue = h.cost_value || h.shares * h.cost_price;
       const pnl = marketValue - costValue;
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
+      const dailyChange = priceData.change || 0;
 
       await db.collection('holdings').doc(h._id).update({
         data: {
@@ -121,6 +125,7 @@ exports.main = async (event) => {
           market_value: marketValue,
           pnl,
           pnl_percent: pnlPercent,
+          daily_change: dailyChange,
           price_updated_at: db.serverDate(),
         },
       });

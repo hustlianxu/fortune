@@ -3,7 +3,16 @@
 
 .holding-header { text-align: center; margin-bottom: 24rpx; }
 .holding-name { font-size: 36rpx; font-weight: 700; display: block; }
-.holding-code { font-size: 26rpx; color: #8e8e93; display: block; margin: 8rpx 0; }
+.holding-code { font-size: 26rpx; color: var(--text-tertiary); display: block; margin: 8rpx 0; }
+.cleared-badge {
+  display: inline-block;
+  margin-top: 8rpx;
+  padding: 4rpx 16rpx;
+  font-size: 22rpx;
+  background: var(--color-up-soft);
+  color: var(--color-up);
+  border-radius: var(--radius-sm);
+}
 
 .price-row {
   display: flex;
@@ -11,7 +20,7 @@
   margin-bottom: 24rpx;
 }
 .price-item { text-align: center; flex: 1; }
-.price-label { font-size: 22rpx; color: #8e8e93; display: block; }
+.price-label { font-size: 22rpx; color: var(--text-tertiary); display: block; }
 .price-value { font-size: 32rpx; font-weight: 700; display: block; margin-top: 4rpx; }
 
 .info-grid { margin-bottom: 24rpx; }
@@ -19,26 +28,74 @@
   display: flex;
   justify-content: space-between;
   padding: 16rpx 0;
-  border-bottom: 1rpx solid #f0f0f0;
+  border-bottom: 1rpx solid var(--divider-color);
 }
-.info-label { font-size: 26rpx; color: #8e8e93; }
+.info-label { font-size: 26rpx; color: var(--text-tertiary); }
 .info-value { font-size: 26rpx; font-weight: 500; }
 
+.section-title { font-size: 28rpx; font-weight: 600; color: var(--text-primary); margin-bottom: 16rpx; }
+
 .action-buttons { display: flex; gap: 20rpx; }
-.btn-edit {
-  flex: 1;
-  background: #6c63ff;
+.btn-trade {
+  flex: 1.4;
+  background: var(--primary-color);
   color: #fff;
   padding: 20rpx;
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-size: 28rpx;
+}
+.btn-edit {
+  flex: 1;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  padding: 20rpx;
+  border-radius: var(--radius-sm);
   text-align: center;
 }
 .btn-delete {
   flex: 1;
   background: transparent;
-  color: #f5222d;
+  color: var(--color-up);
   padding: 20rpx;
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   text-align: center;
-  border: 2rpx solid #f5222d;
+  border: 2rpx solid var(--color-up);
 }
+
+/* 最近交易列表 */
+.recent-txn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.recent-txn:last-child { border-bottom: none; }
+.recent-txn-left { display: flex; align-items: center; }
+.recent-txn-badge {
+  display: inline-block;
+  padding: 4rpx 12rpx;
+  border-radius: var(--radius-sm);
+  font-size: 20rpx;
+  margin-right: var(--space-sm);
+  background: var(--txn-buy-soft);
+  color: var(--txn-buy);
+}
+.recent-txn-badge.txn-buy { background: var(--txn-buy-soft); color: var(--txn-buy); }
+.recent-txn-badge.txn-sell { background: var(--txn-sell-soft); color: var(--txn-sell); }
+.recent-txn-badge.txn-in { background: var(--txn-income-soft); color: var(--txn-income); }
+.recent-txn-badge.txn-out { background: var(--txn-transfer-soft); color: var(--txn-transfer); }
+.recent-txn-badge.txn-flat { background: var(--txn-transfer-soft); color: var(--txn-transfer); }
+.recent-txn-date { font-size: 24rpx; color: var(--text-tertiary); }
+
+.recent-txn-right { display: flex; flex-direction: column; align-items: flex-end; }
+.recent-txn-shares { font-size: 22rpx; color: var(--text-tertiary); }
+.recent-txn-amount { font-size: 28rpx; font-weight: 600; margin-top: 4rpx; }
+.recent-txn-amount.txn-buy { color: var(--txn-buy); }
+.recent-txn-amount.txn-sell { color: var(--txn-sell); }
+.recent-txn-amount.txn-in { color: var(--txn-income); }
+.recent-txn-amount.txn-out { color: var(--txn-transfer); }
+.recent-txn-amount.txn-flat { color: var(--text-secondary); }
+
+.empty-hint { font-size: 24rpx; color: var(--text-tertiary); margin-top: 12rpx; }

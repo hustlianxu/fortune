@@ -153,6 +153,10 @@ async function getHoldings(accountId = null) {
 
 /**
  * 获取总资产汇总
+ * 返回字段：totalAssets / totalMarketValue / totalCashBalance / totalCostValue /
+ *          totalPnL / totalPnLPercent / todayPnL / holdingCount / accountCount /
+ *          accounts(含 holdings/holdingCount/market_value/cost_value/pnl/pnl_percent/total_value/today_pnl) /
+ *          holdings
  */
 async function getPortfolioSummary() {
   try {
@@ -168,6 +172,15 @@ async function getPortfolioSummary() {
     const totalPnL = totalMarketValue - totalCostValue;
     const totalPnLPercent = totalCostValue > 0 ? (totalPnL / totalCostValue) * 100 : 0;
 
+    // 今日收益 = 各持仓当日变动额之和（基于行情接口返回的 change 字段 × 份额）
+    // 若未刷新行情，daily_change 字段缺失，今日收益记为 0
+    let todayPnL = 0;
+    holdings.forEach(h => {
+      if (typeof h.daily_change === 'number' && h.shares) {
+        todayPnL += h.daily_change * h.shares;
+      }
+    });
+
     // 按账户汇总
     const accountSummary = accounts.map(acc => {
       const accHoldings = holdings.filter(h => h.account_id === acc._id);
@@ -175,6 +188,8 @@ async function getPortfolioSummary() {
       const accCostValue = accHoldings.reduce((s, h) => s + (h.cost_value || 0), 0);
       const accPnL = accMarketValue - accCostValue;
       const accPnLPercent = accCostValue > 0 ? (accPnL / accCostValue) * 100 : 0;
+      const accTodayPnL = accHoldings.reduce((s, h) =>
+        s + (typeof h.daily_change === 'number' && h.shares ? h.daily_change * h.shares : 0), 0);
       return {
         ...acc,
         holdings: accHoldings,
@@ -183,6 +198,7 @@ async function getPortfolioSummary() {
         cost_value: accCostValue,
         pnl: accPnL,
         pnl_percent: accPnLPercent,
+        today_pnl: accTodayPnL,
         total_value: accMarketValue + (acc.cash_balance || 0),
       };
     });
@@ -194,6 +210,9 @@ async function getPortfolioSummary() {
       totalCostValue,
       totalPnL,
       totalPnLPercent,
+      todayPnL,
+      holdingCount: holdings.length,
+      accountCount: accounts.length,
       accounts: accountSummary,
       holdings,
     };

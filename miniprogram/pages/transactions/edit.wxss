@@ -1,1 +1,81 @@
-/* pages/transactions/edit.wxss */
+/* 交易流水编辑 - v0.2.0 清爽化 */
+.page { padding-bottom: 40rpx; }
+.page-title { font-size: 36rpx; font-weight: 600; color: var(--text-primary); }
+
+.form-group { margin-bottom: var(--space-md); }
+.form-label { font-size: 26rpx; color: var(--text-secondary); display: block; margin-bottom: var(--space-xs); }
+
+.input-field {
+  width: 100%;
+  padding: var(--space-md);
+  min-height: 88rpx;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  border: 2rpx solid var(--border-color);
+  font-size: 28rpx;
+  box-sizing: border-box;
+  color: var(--text-primary);
+}
+
+.picker-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-md);
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  border: 2rpx solid var(--border-color);
+  color: var(--text-primary);
+}
+.picker-arrow { font-size: 24rpx; color: var(--text-tertiary); }
+
+.btn-primary {
+  background: var(--primary-color);
+  color: #fff;
+  padding: var(--space-md);
+  border-radius: var(--radius-card);
+  font-size: 30rpx;
+  width: 100%;
+  text-align: center;
+}
+.btn-primary:active { opacity: 0.85; }
+
+.btn-delete {
+  margin-top: var(--space-md);
+  background: transparent;
+  color: var(--color-up);
+  padding: 20rpx;
+  border-radius: var(--radius-card);
+  font-size: 28rpx;
+  width: 100%;
+  border: 2rpx solid var(--color-up);
+}
+
+/* 名称搜索建议 */
+.suggestions {
+  margin-top: var(--space-xs);
+  background: var(--bg-card);
+  border: 2rpx solid var(--border-color);
+  border-radius: var(--radius-sm);
+  max-height: 400rpx;
+  overflow-y: auto;
+}
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:active { background: var(--primary-soft); }
+.suggestion-left { display: flex; flex-direction: column; }
+.suggestion-name { font-size: 28rpx; font-weight: 500; color: var(--text-primary); }
+.suggestion-code { font-size: 22rpx; color: var(--text-tertiary); margin-top: 4rpx; }
+.suggestion-type {
+  font-size: 22rpx;
+  padding: 4rpx 12rpx;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--primary-soft);
+  color: var(--primary-color);
+}

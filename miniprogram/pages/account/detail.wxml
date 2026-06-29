@@ -1,21 +1,23 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
 <!-- 账户详情 -->
 <view class="page">
   <view class="card" wx:if="{{account._id}}">
     <view class="account-header-section">
       <text class="account-name">{{account.name}}</text>
-      <text class="account-platform">{{platformName(account.platform)}}</text>
+      <text class="account-platform">{{c.platformName(account.platform)}}</text>
     </view>
 
     <view class="account-total">
       <text class="total-label">总资产</text>
-      <text class="total-value">¥{{formatMoney(account.total_value)}}</text>
-      <text class="total-pnl {{account.pnl > 0 ? 'price-up' : (account.pnl < 0 ? 'price-down' : '')}}">
-        {{account.pnl >= 0 ? '+' : ''}}{{formatMoney(account.pnl)}}
+      <text class="total-value">¥{{fmt.formatMoney(account.total_value)}}</text>
+      <text class="total-pnl {{fmt.pnlClass(account.pnl)}}">
+        {{fmt.pnlSign(account.pnl)}}{{fmt.formatMoney(account.pnl)}}
       </text>
     </view>
 
     <view class="balance-row" wx:if="{{account.cash_balance}}">
-      <text>余额: ¥{{formatMoney(account.cash_balance)}}</text>
+      <text>余额: ¥{{fmt.formatMoney(account.cash_balance)}}</text>
     </view>
 
     <view class="section-title">持仓列表 ({{account.holdingCount}})</view>
@@ -23,15 +25,15 @@
           bindtap="onHoldingTap" data-holding="{{h}}">
       <view class="holding-top">
         <text class="h-name">{{h.product_name}}</text>
-        <text class="h-pnl {{h.pnl > 0 ? 'price-up' : (h.pnl < 0 ? 'price-down' : '')}}">
-          {{h.pnl >= 0 ? '+' : ''}}{{formatMoney(h.pnl)}}
+        <text class="h-pnl {{fmt.pnlClass(h.pnl)}}">
+          {{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}
         </text>
       </view>
       <view class="holding-bottom">
         <text>{{h.product_code}}</text>
-        <text>现价: {{formatMoney(h.current_price)}}</text>
-        <text>份额: {{formatQuantity(h.shares)}}</text>
-        <text>市值: {{formatMoney(h.market_value)}}</text>
+        <text>现价: {{fmt.formatMoney(h.current_price)}}</text>
+        <text>份额: {{fmt.formatQuantity(h.shares)}}</text>
+        <text>市值: {{fmt.formatMoney(h.market_value)}}</text>
       </view>
     </view>
 

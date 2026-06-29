@@ -2,8 +2,7 @@
  * 资产看板页面
  */
 const api = require('../../utils/api');
-const { formatMoney, formatPercent, formatDate, getPriceColor, getPriceArrow } = require('../../utils/format');
-const { ACCOUNT_PLATFORMS } = require('../../utils/constants');
+const { formatDate, getPriceColor, getPriceArrow } = require('../../utils/format');
 
 Page({
   data: {
@@ -13,14 +12,17 @@ Page({
       totalPnL: 0,
       totalPnLPercent: 0,
       todayPnL: 0,
-      accounts: [],
       holdingCount: 0,
+      accountCount: 0,
+      accounts: [],
     },
     distributionList: [],
     lastUpdate: '',
     pnlColor: 'price-flat',
     pnlArrow: '→',
     todayPnlColor: 'price-flat',
+    // 总盈亏百分比显示文本
+    pnlPercentText: '0.00%',
   },
 
   onLoad() {
@@ -29,6 +31,11 @@ Page({
     app.onRefresh(() => {
       this.loadData();
     });
+  },
+
+  onReady() {
+    // Canvas 2D 需要在 ready 后才能拿到节点
+    this.drawPie();
   },
 
   onShow() {
@@ -44,6 +51,7 @@ Page({
         pnlColor: getPriceColor(summary.totalPnL),
         pnlArrow: getPriceArrow(summary.totalPnL),
         todayPnlColor: getPriceColor(summary.todayPnL),
+        pnlPercentText: (summary.totalPnLPercent || 0).toFixed(2) + '%',
         lastUpdate: wx.getStorageSync('last_price_update') || '',
         distributionList: this.buildDistribution(summary),
         loading: false,
@@ -53,6 +61,9 @@ Page({
       const app = getApp();
       app.globalData.totalAssets = summary.totalAssets;
       app.globalData.totalPnL = summary.totalPnL;
+
+      // 数据就绪后绘制饼图
+      this.drawPie();
 
       // 检查是否需要自动更新行情
       if (wx.getStorageSync('need_price_update')) {
@@ -75,9 +86,57 @@ Page({
     return summary.accounts.map((acc, i) => ({
       name: acc.name,
       value: acc.total_value || 0,
-      percent: ((acc.total_value || 0) / total * 100).toFixed(1),
+      percent: (((acc.total_value || 0) / total) * 100).toFixed(1),
       color: colors[i % colors.length],
     }));
+  },
+
+  /**
+   * 绘制资产分布饼图（Canvas 2D）
+   */
+  drawPie() {
+    const list = this.data.distributionList;
+    if (!list || list.length === 0) return;
+    const query = wx.createSelectorQuery();
+    query.select('#pieCanvas').fields({ node: true, size: true }).exec((res) => {
+      if (!res || !res[0] || !res[0].node) return;
+      const canvas = res[0].node;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = wx.getSystemInfoSync().pixelRatio || 1;
+      const width = res[0].width || 150;
+      const height = res[0].height || 150;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const total = list.reduce((s, i) => s + (parseFloat(i.value) || 0), 0);
+      if (total <= 0) return;
+
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const radius = Math.min(width, height) / 2 - 4;
+
+      let startAngle = -Math.PI / 2;
+      list.forEach((item) => {
+        const value = parseFloat(item.value) || 0;
+        if (value <= 0) return;
+        const angle = (value / total) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, startAngle, startAngle + angle);
+        ctx.closePath();
+        ctx.fillStyle = item.color;
+        ctx.fill();
+        startAngle += angle;
+      });
+
+      // 中心空心
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius * 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    });
   },
 
   /**
@@ -88,8 +147,7 @@ Page({
       wx.showLoading({ title: '更新行情中...' });
       const result = await api.refreshPrices();
       if (result && result.success) {
-        wx.setStorageSync('last_price_update', formatDate(new Date(), 'MM-DD HH:mm'));
-        wx.setStorageSync('need_price_update', false);
+        this.markUpdated();
         wx.hideLoading();
         // 重新加载数据
         this.loadData();
@@ -110,17 +168,27 @@ Page({
     try {
       const result = await api.refreshPrices();
       if (result && result.success) {
-        wx.setStorageSync('last_price_update', formatDate(new Date(), 'MM-DD HH:mm'));
-        wx.setStorageSync('need_price_update', false);
+        this.markUpdated();
         wx.showToast({ title: '刷新成功', icon: 'success' });
       } else {
-        wx.showToast({ title: result?.message || '刷新失败', icon: 'none' });
+        wx.showToast({ title: (result && result.message) || '刷新失败', icon: 'none' });
       }
       this.loadData();
     } catch (err) {
       wx.hideLoading();
       wx.showToast({ title: '网络错误', icon: 'none' });
     }
+  },
+
+  /**
+   * 记录已刷新行情的时间戳
+   * 统一使用 toDateString 格式，与 app.checkDailyUpdate 对齐
+   */
+  markUpdated() {
+    const now = new Date();
+    wx.setStorageSync('last_price_update', formatDate(now, 'MM-DD HH:mm'));
+    wx.setStorageSync('last_price_update_day', now.toDateString());
+    wx.setStorageSync('need_price_update', false);
   },
 
   /**
@@ -160,21 +228,4 @@ Page({
   onAddHolding() {
     wx.navigateTo({ url: '/pages/holding/edit' });
   },
-
-  /**
-   * 获取平台中文名
-   */
-  platformName(platformKey) {
-    for (const group of ACCOUNT_PLATFORMS) {
-      if (group.platforms) {
-        const found = group.platforms.find(p => p.key === platformKey);
-        if (found) return found.name;
-      }
-      if (group.key === platformKey) return group.name;
-    }
-    return platformKey || '未知';
-  },
-
-  formatMoney,
-  formatDate,
 });

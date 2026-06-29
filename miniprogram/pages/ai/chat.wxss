@@ -26,13 +26,13 @@
   line-height: 1.6;
 }
 .bubble.user {
-  background: #6c63ff;
+  background: var(--primary-color);
   color: #fff;
   border-bottom-right-radius: 4rpx;
 }
 .bubble.assistant {
   background: var(--bg-input);
-  color: #1d1d1f;
+  color: var(--text-primary);
   border-bottom-left-radius: 4rpx;
 }
 
@@ -42,7 +42,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #aeaeb2;
+  color: var(--text-tertiary);
 }
 .empty-icon { font-size: 80rpx; margin-bottom: 20rpx; }
 
@@ -57,7 +57,7 @@
   flex: 1;
   padding: 20rpx 24rpx;
   background: var(--bg-input);
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   font-size: 28rpx;
   color: var(--text-primary);
   border: 2rpx solid var(--border-color);
@@ -65,9 +65,9 @@
 .send-btn {
   margin-left: 12rpx;
   padding: 16rpx 32rpx;
-  background: #6c63ff;
+  background: var(--primary-color);
   color: #fff;
-  border-radius: 12rpx;
+  border-radius: var(--radius-sm);
   font-size: 28rpx;
   border: none;
 }

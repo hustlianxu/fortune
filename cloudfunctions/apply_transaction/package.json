@@ -1,0 +1,9 @@
+{
+  "name": "apply_transaction",
+  "version": "1.0.0",
+  "description": "将一笔交易应用到持仓（加权平均成本，幂等）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

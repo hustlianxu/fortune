@@ -1,4 +1,6 @@
 <!-- AI 持仓分析 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
 <view class="page">
   <view class="card">
     <text class="page-title">🤖 AI 持仓分析</text>
@@ -25,7 +27,7 @@
     <view class="overview-grid">
       <view class="overview-item">
         <text class="overview-label">总资产</text>
-        <text class="overview-value">¥{{formatMoney(summary.totalAssets)}}</text>
+        <text class="overview-value">¥{{fmt.formatMoney(summary.totalAssets)}}</text>
       </view>
       <view class="overview-item">
         <text class="overview-label">持仓产品</text>
@@ -37,7 +39,7 @@
       </view>
       <view class="overview-item">
         <text class="overview-label">累计盈亏</text>
-        <text class="overview-value {{pnlColor}}">{{summary.totalPnL >= 0 ? '+' : ''}}{{formatMoney(summary.totalPnL)}}</text>
+        <text class="overview-value {{pnlColor}}">{{fmt.pnlSign(summary.totalPnL)}}{{fmt.formatMoney(summary.totalPnL)}}</text>
       </view>
     </view>
   </view>
@@ -88,7 +90,7 @@
       </view>
     </view>
     <view class="result-content" wx:if="{{result.content}}">
-      <rich-text nodes="{{result.content}}"></rich-text>
+      <text class="result-text" user-select="{{true}}" decode="{{true}}">{{result.content}}</text>
     </view>
   </view>
 
@@ -103,11 +105,11 @@
       data-report="{{item}}"
     >
       <view class="history-left">
-        <text class="history-type">{{analysisTypeName(item.type)}}</text>
+        <text class="history-type">{{c.analysisTypeName(item.type)}}</text>
         <text class="history-model">{{item.provider || 'unknown'}}</text>
       </view>
       <view class="history-right">
-        <text class="history-date">{{formatDate(item.created_at)}}</text>
+        <text class="history-date">{{fmt.formatDate(item.created_at)}}</text>
         <text class="history-arrow">›</text>
       </view>
     </view>

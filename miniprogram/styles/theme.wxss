@@ -1,20 +1,36 @@
-/* 个人资产管家 - 主题变量 */
+/* 个人资产管家 - 主题变量（v0.2.0 清爽化） */
 
 page {
-  /* 主色 - 科技紫 */
-  --primary-color: #6c63ff;
-  --primary-light: #8b83ff;
-  --primary-dark: #4a42d6;
+  /* 主色 - 靛蓝（由原科技紫调淡，降低视觉刺激） */
+  --primary-color: #4a6cf7;
+  --primary-light: #6e8bff;
+  --primary-dark: #2f4fd6;
+  --primary-soft: #eef2ff;            /* 主色 8% 背景，用于 tag/选中态 */
+  --primary-color-rgb: 74,108,247;
 
-  /* 涨跌色 */
+  /* 涨跌色（A 股惯例：涨红跌绿，仅用于价格/盈亏数字） */
   --color-up: #f5222d;
   --color-down: #52c41a;
   --color-flat: #8e8e93;
 
+  /* 交易语义色（独立于涨跌色，避免语义错乱） */
+  --txn-buy: #4a6cf7;                 /* 买入：主色蓝 */
+  --txn-sell: #f5a623;                /* 卖出：琥珀橙 */
+  --txn-transfer: #8e8e93;            /* 转账：中性灰 */
+  --txn-income: #34c759;              /* 分红/利息：清新绿 */
+  --txn-buy-soft: #eef2ff;
+  --txn-sell-soft: #fff5e6;
+  --txn-transfer-soft: #f2f2f4;
+  --txn-income-soft: #eafaf0;
+
+  /* 语义状态色（错误/成功/警告的浅底） */
+  --color-up-soft: #fff1f0;           /* 错误/涨红浅底 */
+  --color-down-soft: #f6ffed;         /* 成功/跌绿浅底 */
+
   /* 背景 */
   --bg-primary: #f5f5f7;
   --bg-card: #ffffff;
-  --bg-input: #f8f8fa;
+  --bg-input: #f5f5f7;
 
   /* 文字 */
   --text-primary: #1d1d1f;
@@ -22,23 +38,25 @@ page {
   --text-tertiary: #aeaeb2;
 
   /* 边框 */
-  --border-color: #e5e5ea;
+  --border-color: #ececee;
+  --divider-color: #f2f2f4;
 
-  /* 产品标签色 */
-  --tag-stock: #6c63ff;
-  --tag-etf: #1890ff;
-  --tag-lof: #52c41a;
-  --tag-fund: #fa8c16;
-  --tag-money: #13c2c2;
+  /* 卡片规范 */
+  --radius-card: 20rpx;
+  --radius-sm: 12rpx;
+  --shadow-card: 0 2rpx 12rpx rgba(0,0,0,0.04);
 
-  /* 卡片阴影 */
-  --shadow-sm: 0 2rpx 8rpx rgba(0,0,0,0.08);
-  --shadow-md: 0 4rpx 16rpx rgba(0,0,0,0.12);
+  /* 间距规范（4 栅格） */
+  --space-xs: 8rpx;
+  --space-sm: 16rpx;
+  --space-md: 24rpx;
+  --space-lg: 32rpx;
 }
 
 /* 暗色模式 - 预留 */
 @media (prefers-color-scheme: dark) {
   page {
+    --primary-soft: rgba(74,108,247,0.18);
     --bg-primary: #1c1c1e;
     --bg-card: #2c2c2e;
     --bg-input: #3a3a3c;
@@ -46,5 +64,10 @@ page {
     --text-secondary: #aeaeb2;
     --text-tertiary: #636366;
     --border-color: #38383a;
+    --divider-color: #38383a;
+    --txn-buy-soft: rgba(74,108,247,0.18);
+    --txn-sell-soft: rgba(245,166,35,0.18);
+    --txn-transfer-soft: rgba(142,142,147,0.18);
+    --txn-income-soft: rgba(52,199,89,0.18);
   }
 }

@@ -60,11 +60,12 @@ App({
 
   /**
    * 检查每日更新
+   * last_price_update_day 使用 toDateString 格式存储，便于跨日比对
    */
   checkDailyUpdate() {
-    const lastUpdate = wx.getStorageSync('last_price_update');
+    const lastUpdateDay = wx.getStorageSync('last_price_update_day');
     const today = new Date().toDateString();
-    if (lastUpdate !== today) {
+    if (lastUpdateDay !== today) {
       // 标记需要更新，进入首页时自动刷新
       wx.setStorageSync('need_price_update', true);
     }

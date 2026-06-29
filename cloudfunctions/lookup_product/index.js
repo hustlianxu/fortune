@@ -12,6 +12,7 @@
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
+const http = require('./http');
 
 /**
  * 通过腾讯行情接口查询股票/ETF/LOF
@@ -25,8 +26,7 @@ async function queryByCode(code) {
   for (const prefix of prefixes) {
     try {
       const url = `https://qt.gtimg.cn/q=${prefix}${codeStr}`;
-      const response = await fetch(url);
-      const text = await response.text();
+      const text = await http.getText(url);
       const parsed = parseTencentLine(text);
       if (parsed) {
         results.push(parsed);
@@ -45,7 +45,7 @@ function parseTencentLine(text) {
     const match = text.match(/="([^"]+)"/);
     if (!match) return null;
     const fields = match[1].split('~');
-    const codePart = text.split('_')[1]?.split('=')[0];
+    const codePart = text.split('_')[1] ? text.split('_')[1].split('=')[0] : '';
     const code = codePart || '';
     const name = fields[1] || '';
     const price = parseFloat(fields[3]) || 0;
@@ -56,12 +56,12 @@ function parseTencentLine(text) {
     // 判断产品类型
     let type = 'stock';
     let exchange = 'SH';
-    if (code.startsWith('hk')) exchange = 'HK';
-    else if (code.startsWith('sz')) exchange = 'SZ';
+    if (code.indexOf('hk') === 0) exchange = 'HK';
+    else if (code.indexOf('sz') === 0) exchange = 'SZ';
 
     const rawCode = code.replace(/^(sh|sz|hk)/, '');
-    if (rawCode.startsWith('51') || rawCode.startsWith('16')) type = 'etf';
-    if (rawCode.startsWith('50')) type = 'etf';
+    if (rawCode.indexOf('51') === 0 || rawCode.indexOf('16') === 0) type = 'etf';
+    if (rawCode.indexOf('50') === 0) type = 'etf';
 
     return { code: rawCode, name, type, exchange, price };
   } catch (e) {
@@ -75,8 +75,7 @@ function parseTencentLine(text) {
 async function queryFundByCode(code) {
   try {
     const url = `https://fundgz.1234567.com.cn/js/${code}.js`;
-    const response = await fetch(url);
-    const text = await response.text();
+    const text = await http.getText(url);
     const match = text.match(/jsonpgz\(({.*?})\)/);
     if (match) {
       const data = JSON.parse(match[1]);
@@ -149,13 +148,13 @@ function searchByName(name) {
 
   const keyword = name.toLowerCase();
   const matched = commonProducts.filter(p =>
-    p.name.includes(keyword) || p.code.includes(keyword)
+    p.name.indexOf(keyword) >= 0 || p.code.indexOf(keyword) >= 0
   );
 
   // 如果有精确代码匹配，优先返回
   const exactCode = matched.filter(p => p.code === keyword);
   const other = matched.filter(p => p.code !== keyword);
-  return [...exactCode, ...other].slice(0, 10);
+  return exactCode.concat(other).slice(0, 10);
 }
 
 exports.main = async (event) => {
@@ -168,7 +167,7 @@ exports.main = async (event) => {
       // 按代码查询（精确匹配）
       const stockResults = await queryByCode(code);
       const fundResults = await queryFundByCode(code);
-      products = [...stockResults, ...fundResults];
+      products = stockResults.concat(fundResults);
     }
 
     if (name && !code) {

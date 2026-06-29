@@ -1,3 +1,5 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
 <!-- 持仓列表 -->
 <view class="page">
   <view class="card">
@@ -8,7 +10,7 @@
   <view class="card" wx:for="{{accountList}}" wx:key="_id">
     <view class="acc-header" bindtap="onToggleAccount" data-id="{{item._id}}">
       <text class="acc-name">{{item.name}}</text>
-      <text class="acc-value">¥{{formatMoney(item.total_value)}}</text>
+      <text class="acc-value">¥{{fmt.formatMoney(item.total_value)}}</text>
       <text class="toggle-icon">{{item.expanded ? '▼' : '▶'}}</text>
     </view>
 
@@ -17,18 +19,18 @@
             bindtap="onHoldingTap" data-holding="{{h}}">
         <view class="holding-header">
           <text class="holding-name">{{h.product_name}}</text>
-          <view class="holding-pnl {{h.pnl > 0 ? 'price-up' : (h.pnl < 0 ? 'price-down' : '')}}">
-            <text>{{h.pnl >= 0 ? '+' : ''}}{{formatMoney(h.pnl)}}</text>
+          <view class="holding-pnl {{fmt.pnlClass(h.pnl)}}">
+            <text>{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
           </view>
         </view>
         <view class="holding-body">
           <text class="holding-code">{{h.product_code}}</text>
-          <text class="tag {{tagClass(h.product_type)}}">{{productTypeName(h.product_type)}}</text>
+          <text class="tag {{c.tagClass(h.product_type)}}">{{c.productTypeName(h.product_type)}}</text>
         </view>
         <view class="holding-footer">
-          <text>当前: {{formatMoney(h.current_price)}}</text>
-          <text>成本: {{formatMoney(h.cost_price)}}</text>
-          <text>数量: {{formatQuantity(h.shares)}}</text>
+          <text>当前: {{fmt.formatMoney(h.current_price)}}</text>
+          <text>成本: {{fmt.formatMoney(h.cost_price)}}</text>
+          <text>数量: {{fmt.formatQuantity(h.shares)}}</text>
         </view>
       </view>
     </view>

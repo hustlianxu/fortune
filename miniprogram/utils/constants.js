@@ -116,6 +116,17 @@ const NEWS_CATEGORIES = [
   { key: 'global', name: '国际' },
 ];
 
+// 交易流水类型
+const TRANSACTION_TYPES = [
+  { key: 'buy', name: '买入', sign: '-' },
+  { key: 'sell', name: '卖出', sign: '+' },
+  { key: 'dividend', name: '分红', sign: '+' },
+  { key: 'transfer_in', name: '转入', sign: '+' },
+  { key: 'transfer_out', name: '转出', sign: '-' },
+  { key: 'fee', name: '手续费', sign: '-' },
+  { key: 'interest', name: '利息', sign: '+' },
+];
+
 // 云函数名
 const CLOUD_FUNCTIONS = {
   SYNC_PRICES: 'sync_prices',
@@ -137,5 +148,6 @@ module.exports = {
   ANALYSIS_TYPES,
   LLM_PROVIDERS,
   NEWS_CATEGORIES,
+  TRANSACTION_TYPES,
   CLOUD_FUNCTIONS,
 };

@@ -1,0 +1,9 @@
+{
+  "name": "rebuild_holdings",
+  "version": "1.0.0",
+  "description": "从交易流水全量重建持仓（幂等）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

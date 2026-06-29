@@ -52,12 +52,17 @@ function formatDate(date, format = 'YYYY-MM-DD') {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
 
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+
   const map = {
     'YYYY-MM-DD': `${year}-${month}-${day}`,
     'MM-DD': `${month}-${day}`,
     'YYYY/MM/DD': `${year}/${month}/${day}`,
     'YYYY年MM月DD日': `${year}年${month}月${day}日`,
     'MM月DD日': `${month}月${day}日`,
+    'MM-DD HH:mm': `${month}-${day} ${hours}:${minutes}`,
+    'YYYY-MM-DD HH:mm': `${year}-${month}-${day} ${hours}:${minutes}`,
   };
   return map[format] || `${year}-${month}-${day}`;
 }

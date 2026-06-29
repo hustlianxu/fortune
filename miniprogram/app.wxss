@@ -18,10 +18,10 @@ page {
 /* 卡片组件 */
 .card {
   background: var(--bg-card);
-  border-radius: 20rpx;
-  padding: 30rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-md);
+  box-shadow: var(--shadow-card);
 }
 
 /* 行布局 */
@@ -42,19 +42,23 @@ page {
   border-bottom: none;
 }
 
-/* 标签 */
+/* 标签 - 统一浅底深字，单一主色，避免色块泛滥 */
 .tag {
   display: inline-block;
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 22rpx;
+  padding: 4rpx 14rpx;
+  border-radius: var(--radius-sm);
+  font-size: 20rpx;
   margin-right: 8rpx;
+  background: var(--primary-soft);
+  color: var(--primary-color);
+  line-height: 1.6;
 }
-.tag-stock { background: var(--tag-stock); color: #fff; }
-.tag-etf { background: var(--tag-etf); color: #fff; }
-.tag-lof { background: var(--tag-lof); color: #fff; }
-.tag-fund { background: var(--tag-fund); color: #fff; }
-.tag-money { background: var(--tag-money); color: #fff; }
+/* 极少数需要区分类型的场景用更淡的描边 */
+.tag-stock { background: var(--primary-soft); color: var(--primary-color); }
+.tag-etf { background: var(--primary-soft); color: var(--primary-color); }
+.tag-lof { background: var(--primary-soft); color: var(--primary-color); }
+.tag-fund { background: var(--primary-soft); color: var(--primary-color); }
+.tag-money { background: var(--primary-soft); color: var(--primary-color); }
 
 /* 按钮 */
 .btn-primary {

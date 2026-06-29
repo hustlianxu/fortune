@@ -1,2 +1,91 @@
-<!--pages/transactions/edit.wxml-->
-<text>pages/transactions/edit.wxml</text>
+<!-- 添加/编辑交易流水 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
+<view class="page">
+  <view class="card">
+    <text class="page-title">{{isEdit ? '编辑交易' : '记录交易'}}</text>
+  </view>
+
+  <view class="card">
+    <view class="form-group">
+      <text class="form-label">所属账户 *</text>
+      <picker bindchange="onAccountChange" value="{{accountIndex}}" range="{{accountNames}}">
+        <view class="picker-row">
+          <text>{{accountNames[accountIndex] || '请选择账户'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">交易类型 *</text>
+      <picker bindchange="onTypeChange" value="{{typeIndex}}" range="{{typeNames}}">
+        <view class="picker-row">
+          <text>{{typeNames[typeIndex] || '请选择'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">产品代码</text>
+      <input class="input-field" placeholder="买入/卖出时必填，如 600036" model:value="{{form.product_code}}" bindinput="onCodeInput" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">产品名称</text>
+      <input class="input-field" placeholder="如：招商银行" model:value="{{form.product_name}}" bindinput="onNameInput" />
+      <view class="suggestions" wx:if="{{suggestions.length > 0}}">
+        <view
+          class="suggestion-item"
+          wx:for="{{suggestions}}"
+          wx:key="code"
+          bindtap="onSelectSuggestion"
+          data-code="{{item.code}}"
+          data-name="{{item.name}}"
+        >
+          <view class="suggestion-left">
+            <text class="suggestion-name">{{item.name}}</text>
+            <text class="suggestion-code">{{item.code}}</text>
+          </view>
+          <text class="suggestion-type tag {{c.tagClass(item.type)}}">{{c.productTypeName(item.type)}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">份额 / 数量</text>
+      <input class="input-field" type="digit" placeholder="0" model:value="{{form.shares}}" bindinput="onSharesInput" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">单价</text>
+      <input class="input-field" type="digit" placeholder="0.00" model:value="{{form.price}}" bindinput="onPriceInput" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">金额 *</text>
+      <input class="input-field" type="digit" placeholder="0.00（份额×单价自动计算）" model:value="{{form.amount}}" bindinput="onAmountInput" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">交易日期 *</text>
+      <picker mode="date" value="{{form.trade_date || today}}" bindchange="onDateChange">
+        <view class="picker-row">
+          <text>{{form.trade_date || '请选择日期'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">备注</text>
+      <input class="input-field" placeholder="可选" model:value="{{form.note}}" />
+    </view>
+  </view>
+
+  <view class="card">
+    <button class="btn-primary" bindtap="onSave">{{isEdit ? '更新' : '保存'}}</button>
+    <button class="btn-delete" wx:if="{{isEdit}}" bindtap="onDelete">删除该记录</button>
+  </view>
+</view>

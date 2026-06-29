@@ -1,2 +1,92 @@
-<!--pages/transactions/index.wxml-->
-<text>pages/transactions/index.wxml</text>
+<!-- 交易流水列表 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
+<view class="page">
+  <view class="card page-head">
+    <text class="page-title">📒 交易流水</text>
+    <text class="page-desc">记录每笔买入/卖出/分红/转账</text>
+  </view>
+
+  <!-- 汇总卡 -->
+  <view class="card summary-card">
+    <view class="summary-row">
+      <view class="summary-item">
+        <text class="summary-label">买入流出</text>
+        <text class="summary-value price-down">-¥{{fmt.formatMoney(summary.buyAmount)}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">卖出流入</text>
+        <text class="summary-value price-up">+¥{{fmt.formatMoney(summary.sellAmount)}}</text>
+      </view>
+    </view>
+    <view class="summary-row summary-row-2">
+      <view class="summary-item">
+        <text class="summary-label">净现金流</text>
+        <text class="summary-value {{summary.netCashFlow >= 0 ? 'price-up' : 'price-down'}}">{{summary.netCashFlow >= 0 ? '+' : '-'}}¥{{fmt.formatMoney(summary.netCashFlow)}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">交易笔数</text>
+        <text class="summary-value">{{summary.count}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 筛选 -->
+  <view class="card filter-card">
+    <picker bindchange="onAccountChange" value="{{accountIndex}}" range="{{accountNames}}">
+      <view class="filter-pill">
+        <text>{{accountNames[accountIndex] || '全部账户'}}</text>
+        <text class="filter-arrow">▼</text>
+      </view>
+    </picker>
+    <picker bindchange="onTypeChange" value="{{typeIndex}}" range="{{typeNames}}">
+      <view class="filter-pill">
+        <text>{{typeNames[typeIndex] || '全部类型'}}</text>
+        <text class="filter-arrow">▼</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- 列表（按日期分组） -->
+  <view class="card txn-group" wx:for="{{transactions}}" wx:key="date" wx:for-item="group">
+    <view class="group-date">{{group.date}}</view>
+    <view
+      class="txn-item"
+      wx:for="{{group.items}}"
+      wx:for-item="t"
+      wx:key="_id"
+      bindtap="onEditTransaction"
+      data-id="{{t._id}}"
+    >
+      <view class="txn-left">
+        <text class="txn-type-badge {{c.transactionTypeClass(t.type)}}">{{c.transactionTypeName(t.type)}}</text>
+        <view class="txn-info">
+          <text class="txn-product">{{t.product_name || t.product_code || '资金转账'}}</text>
+          <text class="txn-meta" wx:if="{{t.product_code}}">{{t.product_code}}</text>
+        </view>
+      </view>
+      <view class="txn-right">
+        <text class="txn-amount {{c.transactionTypeClass(t.type)}}">
+          {{c.transactionSign(t.type)}}¥{{fmt.formatMoney(t.amount)}}
+        </text>
+        <view class="txn-actions">
+          <text class="txn-action-del" catchtap="onDeleteTransaction" data-id="{{t._id}}">删除</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:if="{{!loading && transactions.length === 0}}">
+    <text>📝 暂无交易记录</text>
+    <text class="empty-hint">点击右下角按钮添加第一笔</text>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading-container" wx:if="{{loading}}">
+    <loading />
+  </view>
+
+  <!-- 添加按钮 -->
+  <view class="fab" bindtap="onAddTransaction">+</view>
+</view>

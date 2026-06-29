@@ -134,11 +134,14 @@ Page({
 
     wx.showLoading({ title: '保存中...', mask: true });
     try {
-      const result = await api.saveLLMConfig({ providers: config });
+      // saveLLMConfig 内部会调用 encrypt_api_key 云函数，参数为 config 对象本身
+      // 云函数会遍历 config 的每个 provider 进行加密存储
+      const result = await api.saveLLMConfig(config);
       if (result && result.success) {
         wx.showToast({ title: '保存成功', icon: 'success' });
+        setTimeout(() => wx.navigateBack(), 800);
       } else {
-        wx.showToast({ title: result?.message || '保存失败', icon: 'none' });
+        wx.showToast({ title: (result && result.message) || '保存失败', icon: 'none' });
       }
     } catch (err) {
       wx.showToast({ title: '网络错误', icon: 'none' });

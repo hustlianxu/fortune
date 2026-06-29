@@ -1,4 +1,6 @@
 <!-- 财经资讯 -->
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
 <view class="page">
   <view class="card">
     <view class="page-header">
@@ -32,9 +34,9 @@
       data-url="{{item.source_url}}"
     >
       <view class="news-header">
-        <text class="news-category tag-{{item.category}}">{{categoryName(item.category)}}</text>
+        <text class="news-category tag-{{item.category}}">{{c.newsCategoryName(item.category)}}</text>
         <text class="news-source">{{item.source || '财经'}}</text>
-        <text class="news-time">{{formatTime(item.publish_time)}}</text>
+        <text class="news-time">{{fmt.formatTimeAgo(item.publish_time)}}</text>
       </view>
       <text class="news-title">{{item.title}}</text>
       <text class="news-summary" wx:if="{{item.summary}}">{{item.summary}}</text>

@@ -1,0 +1,151 @@
+/**
+ * 常量查询工具 - WXS 版本
+ * 提供 WXML 模板中需要的产品类型/平台/分类等名称查找
+ * 注意：WXS 不支持 ES6+ 语法
+ */
+
+// 产品类型 → { name, tag }
+var PRODUCT_TYPES = {
+  stock: { name: '股票', tag: 'tag-stock' },
+  hk_stock: { name: '港股', tag: 'tag-stock' },
+  us_stock: { name: '美股', tag: 'tag-stock' },
+  etf: { name: 'ETF', tag: 'tag-etf' },
+  lof: { name: 'LOF', tag: 'tag-lof' },
+  reit: { name: 'REITs', tag: 'tag-lof' },
+  fund_stock: { name: '股票型基金', tag: 'tag-fund' },
+  fund_mix: { name: '混合型基金', tag: 'tag-fund' },
+  fund_bond: { name: '债券型基金', tag: 'tag-fund' },
+  fund_index: { name: '指数型基金', tag: 'tag-fund' },
+  fund_money: { name: '货币型基金', tag: 'tag-money' },
+  cash: { name: '现金', tag: 'tag-money' },
+};
+
+var platformName = function (key) {
+  if (!key) return '未知';
+  var map = {
+    huatai: '华泰证券',
+    citic: '中信证券',
+    csc: '招商证券',
+    guotai: '国泰君安',
+    eastern: '东方财富',
+    other_broker: '其他券商',
+    qieman: '且慢',
+    antsfund: '蚂蚁基金',
+    tenfund: '天天基金',
+    htfund: '同花顺爱基金',
+    other_fund: '其他平台',
+    stock: '证券账户',
+    fund_platform: '基金平台',
+    custom: '自定义',
+  };
+  return map[key] || key;
+};
+
+var productTypeName = function (type) {
+  if (!type) return '股票';
+  var t = PRODUCT_TYPES[type];
+  return t ? t.name : type;
+};
+
+var tagClass = function (type) {
+  if (!type) return 'tag-stock';
+  var t = PRODUCT_TYPES[type];
+  return t ? t.tag : 'tag-stock';
+};
+
+// 新闻分类
+var newsCategoryName = function (key) {
+  if (!key) return '全部';
+  var map = {
+    all: '全部',
+    market: '大盘',
+    industry: '行业',
+    company: '公司',
+    policy: '政策',
+    global: '国际',
+  };
+  return map[key] || key;
+};
+
+// 分析类型名
+var analysisTypeName = function (key) {
+  if (!key) return '未知';
+  var map = {
+    portfolio_health: '持仓健康度',
+    pnl_analysis: '盈亏归因分析',
+    rebalance_advice: '调仓建议',
+    risk_analysis: '风险暴露评估',
+  };
+  return map[key] || key;
+};
+
+// 中文风险等级 → CSS 类名
+var riskClass = function (level) {
+  if (!level) return 'steady';
+  var map = {
+    '保守': 'conservative',
+    '稳健': 'steady',
+    '进取': 'aggressive',
+    '激进': 'radical',
+    '低': 'low',
+    '中低': 'low',
+    '中等': 'medium',
+    '中高': 'high',
+    '高': 'high',
+    'A': 'conservative',
+    'B': 'steady',
+    'C': 'aggressive',
+    'D': 'radical',
+  };
+  return map[level] || 'steady';
+};
+
+// 交易类型 → 中文名
+var transactionTypeName = function (key) {
+  if (!key) return '未知';
+  var map = {
+    buy: '买入',
+    sell: '卖出',
+    dividend: '分红',
+    transfer_in: '转入',
+    transfer_out: '转出',
+    fee: '手续费',
+    interest: '利息',
+  };
+  return map[key] || key;
+};
+
+// 交易类型 → CSS 类名（用于涨跌色显示）
+var transactionTypeClass = function (key) {
+  if (!key) return 'txn-flat';
+  var map = {
+    buy: 'txn-buy',
+    sell: 'txn-sell',
+    dividend: 'txn-in',
+    transfer_in: 'txn-in',
+    transfer_out: 'txn-out',
+    fee: 'txn-out',
+    interest: 'txn-in',
+  };
+  return map[key] || 'txn-flat';
+};
+
+// 交易类型 → 金额符号（+/-）
+var transactionSign = function (key) {
+  if (!key) return '';
+  if (key === 'sell' || key === 'dividend' || key === 'transfer_in' || key === 'interest') return '+';
+  if (key === 'buy' || key === 'transfer_out' || key === 'fee') return '-';
+  return '';
+};
+
+module.exports = {
+  platformName: platformName,
+  productTypeName: productTypeName,
+  tagClass: tagClass,
+  newsCategoryName: newsCategoryName,
+  analysisTypeName: analysisTypeName,
+  riskClass: riskClass,
+  transactionTypeName: transactionTypeName,
+  transactionTypeClass: transactionTypeClass,
+  transactionSign: transactionSign,
+};

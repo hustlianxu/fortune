@@ -15,6 +15,7 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
+const http = require('./http');
 
 // AES 解密 - 使用云函数环境变量中的密钥
 const crypto = require('crypto');
@@ -27,6 +28,7 @@ function decrypt(encrypted) {
   try {
     // 格式: iv:encrypted (base64)
     const parts = encrypted.split(':');
+    if (parts.length < 2) return '';
     const iv = Buffer.from(parts[0], 'base64');
     const encryptedText = Buffer.from(parts[1], 'base64');
     const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(AES_KEY), iv);
@@ -40,48 +42,19 @@ function decrypt(encrypted) {
 }
 
 /**
- * LLM 提供商配置
+ * LLM 提供商配置（含默认模型，避免落入 'default' 这种无效模型名）
  */
 const PROVIDERS = {
-  deepseek: {
-    baseURL: 'https://api.deepseek.com',
-    sdkType: 'openai',
-  },
-  qwen: {
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    sdkType: 'openai',
-  },
-  glm: {
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    sdkType: 'openai',
-  },
-  kimi: {
-    baseURL: 'https://api.moonshot.cn/v1',
-    sdkType: 'openai',
-  },
-  chatgpt: {
-    baseURL: 'https://api.openai.com/v1',
-    sdkType: 'openai',
-  },
-  claude: {
-    sdkType: 'anthropic',
-  },
-  bailian: {
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    sdkType: 'openai',
-  },
-  mimo: {
-    baseURL: 'https://api.mi-ai.com/v1',
-    sdkType: 'openai',
-  },
-  minimax: {
-    baseURL: 'https://api.minimax.chat/v1',
-    sdkType: 'openai',
-  },
-  custom: {
-    baseURL: '',
-    sdkType: 'openai',
-  },
+  deepseek: { baseURL: 'https://api.deepseek.com', sdkType: 'openai', defaultModel: 'deepseek-chat' },
+  qwen:     { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', sdkType: 'openai', defaultModel: 'qwen-plus' },
+  glm:      { baseURL: 'https://open.bigmodel.cn/api/paas/v4', sdkType: 'openai', defaultModel: 'glm-4' },
+  kimi:     { baseURL: 'https://api.moonshot.cn/v1', sdkType: 'openai', defaultModel: 'moonshot-v1-8k' },
+  chatgpt:  { baseURL: 'https://api.openai.com/v1', sdkType: 'openai', defaultModel: 'gpt-4o-mini' },
+  claude:   { sdkType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514' },
+  bailian:  { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', sdkType: 'openai', defaultModel: 'qwen-max' },
+  mimo:     { baseURL: 'https://api.mi-ai.com/v1', sdkType: 'openai', defaultModel: 'MiMo' },
+  minimax:  { baseURL: 'https://api.minimax.chat/v1', sdkType: 'openai', defaultModel: 'MiniMax-Text-01' },
+  custom:   { baseURL: '', sdkType: 'openai', defaultModel: '' },
 };
 
 /**
@@ -231,21 +204,28 @@ async function getHoldingsSummary() {
   const detailLines = [];
   const detailWithPnLLines = [];
 
+  // 第一遍：累加总额
   holdings.forEach(h => {
     const mv = h.market_value || 0;
-    const cv = h.cost_value || 0;
-    const pnl = mv - cv;
-    const pnlPercent = cv > 0 ? (pnl / cv * 100) : 0;
-
+    const cv = h.cost_value || h.shares * h.cost_price || 0;
     totalMarketValue += mv;
     totalCostValue += cv;
-
-    // 行业汇总
     const sector = h.sector || '其他';
     sectorMap[sector] = (sectorMap[sector] || 0) + mv;
+  });
 
-    detailLines.push(`  - ${h.product_name}(${h.product_code}) | 市值: ¥${mv.toFixed(2)} | 占比: ${totalMarketValue > 0 ? (mv / totalMarketValue * 100).toFixed(1) : 0}%`);
-    detailWithPnLLines.push(`  - ${h.product_name}(${h.product_code}) | 市值: ¥${mv.toFixed(2)} | 成本: ¥${cv.toFixed(2)} | 盈亏: ${pnl >= 0 ? '+' : ''}¥${pnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)`);
+  // 第二遍：基于完整总额计算占比
+  holdings.forEach(h => {
+    const mv = h.market_value || 0;
+    const cv = h.cost_value || (h.shares * h.cost_price) || 0;
+    const pnl = mv - cv;
+    const pnlPercent = cv > 0 ? (pnl / cv * 100) : 0;
+    const weight = totalMarketValue > 0 ? (mv / totalMarketValue * 100).toFixed(1) : '0.0';
+
+    detailLines.push(`  - ${h.product_name}(${h.product_code}) | 市值: ¥${mv.toFixed(2)} | 占比: ${weight}%`);
+    detailWithPnLLines.push(
+      `  - ${h.product_name}(${h.product_code}) | 市值: ¥${mv.toFixed(2)} | 成本: ¥${cv.toFixed(2)} | 盈亏: ${pnl >= 0 ? '+' : ''}¥${pnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)`
+    );
   });
 
   const totalPnL = totalMarketValue - totalCostValue;
@@ -254,7 +234,7 @@ async function getHoldingsSummary() {
   // 行业分布字符串
   const sectorDistribution = Object.entries(sectorMap)
     .sort((a, b) => b[1] - a[1])
-    .map(([sector, value]) => `  ${sector}: ${(value / totalMarketValue * 100).toFixed(1)}%`)
+    .map(([sector, value]) => `  ${sector}: ${(value / (totalMarketValue || 1) * 100).toFixed(1)}%`)
     .join('\n');
 
   return {
@@ -274,30 +254,33 @@ async function getHoldingsSummary() {
 async function callOpenAICompatible(provider, apiKey, messages, model) {
   const config = PROVIDERS[provider];
   if (!config) throw new Error(`Unknown provider: ${provider}`);
+  if (!config.baseURL) throw new Error(`${provider} 未配置 baseURL`);
 
   const url = `${config.baseURL}/chat/completions`;
+  const effectiveModel = model || config.defaultModel;
+  if (!effectiveModel) throw new Error(`${provider} 未指定模型名称`);
 
-  const response = await fetch(url, {
+  const res = await http.request(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: model || 'default',
+      model: effectiveModel,
       messages,
       temperature: 0.3,
       max_tokens: 4096,
     }),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error ${response.status}: ${errorText}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`API error ${res.status}: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  const data = await res.json();
+  return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
 }
 
 /**
@@ -308,8 +291,10 @@ async function callClaude(apiKey, messages, model) {
   const systemMsg = messages.find(m => m.role === 'system');
   const userMsgs = messages.filter(m => m.role !== 'system');
 
+  const effectiveModel = model || PROVIDERS.claude.defaultModel;
+
   const body = {
-    model: model || 'claude-sonnet-4-20250514',
+    model: effectiveModel,
     max_tokens: 4096,
     messages: userMsgs.map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -321,7 +306,7 @@ async function callClaude(apiKey, messages, model) {
     body.system = systemMsg.content;
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await http.request('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -331,13 +316,13 @@ async function callClaude(apiKey, messages, model) {
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Claude API error ${response.status}: ${errorText}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Claude API error ${res.status}: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.content?.[0]?.text || '';
+  const data = await res.json();
+  return (data.content && data.content[0] && data.content[0].text) || '';
 }
 
 /**
@@ -352,7 +337,7 @@ function parseAnalysisResult(content) {
   };
 
   // 提取摘要
-  const summaryMatch = content.match(/【摘要】([\s\S]*?)(?=【)/);
+  const summaryMatch = content.match(/【摘要】([\s\S]*?)(?=【|$)/);
   if (summaryMatch) {
     result.summary = summaryMatch[1].trim();
   }
@@ -431,10 +416,8 @@ exports.main = async (event) => {
     }
 
     // 5. 调用 LLM
+    const model = providerConfig.model || PROVIDERS[provider].defaultModel || '';
     let content;
-    const provConfig = PROVIDERS[provider];
-    const model = providerConfig.model || 'default';
-
     if (provider === 'claude') {
       content = await callClaude(apiKey, messages, model);
     } else {
