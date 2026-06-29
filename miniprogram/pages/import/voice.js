@@ -198,6 +198,8 @@ Page({
             type: t.type,
             product_name: t.product_name,
             product_code: t.product_code,
+            product_type: t.product_type,
+            exchange: t.exchange,
             shares: t.shares,
             price: t.price,
             fee: t.fee,

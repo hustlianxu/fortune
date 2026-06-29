@@ -4,6 +4,7 @@
 
 .form-group { margin-bottom: var(--space-md); }
 .form-label { font-size: 26rpx; color: var(--text-secondary); display: block; margin-bottom: var(--space-xs); }
+.form-hint { display: block; font-size: 22rpx; color: var(--color-primary, #6c63ff); margin-top: 8rpx; line-height: 1.5; }
 
 .input-field {
   width: 100%;

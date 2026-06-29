@@ -1,8 +1,10 @@
 /**
  * 添加/编辑交易流水
  * 支持选择账户、交易类型、产品代码自动补全、金额自动计算
+ * 手续费：用户未手动输入时按账户费率自动计算（证券：佣金+过户费+印花税；基金：申赎费）
  */
 const { TRANSACTION_TYPES } = require('../../utils/constants');
+const { calcTradeFee, hasFeeRates } = require('../../utils/fee');
 
 const db = wx.cloud.database();
 
@@ -22,6 +24,8 @@ Page({
       type: 'buy',
       product_code: '',
       product_name: '',
+      product_type: '',
+      exchange: '',
       shares: '',
       price: '',
       amount: '',
@@ -33,6 +37,8 @@ Page({
     codeSuggestions: [],    // 代码查询多匹配列表
     codeLookupHint: '',     // 代码查询提示
     currentShares: '',      // 来自持仓详情的当前持有份额（分红时自动填入）
+    feeHint: '',            // 手续费自动计算提示（如"按账户费率自动计算：¥5.12"）
+    _feeTouched: false,     // 用户是否手动编辑过手续费（true=不再自动覆盖）
     _codeTimer: null,       // 代码输入防抖
     _nameTimer: null,
   },
@@ -68,6 +74,8 @@ Page({
       }
       if (options.product_code) patch['form.product_code'] = decodeURIComponent(options.product_code);
       if (options.product_name) patch['form.product_name'] = decodeURIComponent(options.product_name);
+      if (options.product_type) patch['form.product_type'] = decodeURIComponent(options.product_type);
+      if (options.exchange) patch['form.exchange'] = decodeURIComponent(options.exchange);
       if (options.current_shares) {
         patch.currentShares = decodeURIComponent(options.current_shares);
       }
@@ -116,6 +124,8 @@ Page({
           type: t.type || 'buy',
           product_code: t.product_code || '',
           product_name: t.product_name || '',
+          product_type: t.product_type || '',
+          exchange: t.exchange || '',
           shares: t.shares != null ? String(t.shares) : '',
           price: t.price != null ? String(t.price) : '',
           amount: t.amount != null ? String(t.amount) : '',
@@ -123,6 +133,8 @@ Page({
           trade_date: t.trade_date || '',
           note: t.note || '',
         },
+        // 编辑模式下若已存 fee，视为「已触碰」，避免后续自动覆盖
+        _feeTouched: t.fee != null && Number(t.fee) > 0,
       });
     } catch (err) {
       console.error('[Transaction Edit] load error:', err);
@@ -135,7 +147,7 @@ Page({
     this.setData({
       accountIndex: idx,
       'form.account_id': this.data.accounts[idx]?._id || '',
-    });
+    }, () => this.maybeAutoCalcFee());
   },
 
   onTypeChange(e) {
@@ -149,7 +161,7 @@ Page({
     if (type === 'dividend' && this.data.currentShares) {
       patch['form.shares'] = this.data.currentShares;
     }
-    this.setData(patch);
+    this.setData(patch, () => this.maybeAutoCalcFee());
   },
 
   onCodeInput(e) {
@@ -241,20 +253,61 @@ Page({
     const v = e.detail.value;
     this.setData({ 'form.shares': v });
     this.recomputeAmount();
+    this.maybeAutoCalcFee();
   },
 
   onPriceInput(e) {
     const v = e.detail.value;
     this.setData({ 'form.price': v });
     this.recomputeAmount();
+    this.maybeAutoCalcFee();
   },
 
   onAmountInput(e) {
     this.setData({ 'form.amount': e.detail.value });
+    this.maybeAutoCalcFee();
   },
 
   onFeeInput(e) {
-    this.setData({ 'form.fee': e.detail.value });
+    // 用户手动编辑手续费 → 标记为已触碰，后续不再自动覆盖
+    this.setData({ 'form.fee': e.detail.value, _feeTouched: true, feeHint: '' });
+  },
+
+  /**
+   * 用户未手动输入手续费时，按账户费率自动计算并填充
+   * 触发时机：账户变更 / 交易类型变更 / 份额/单价/金额变化
+   */
+  maybeAutoCalcFee() {
+    // 用户已手动编辑 → 不覆盖
+    if (this.data._feeTouched) return;
+    const { form, accounts, accountIndex } = this.data;
+    // 非买卖交易无手续费概念
+    if (form.type !== 'buy' && form.type !== 'sell') {
+      this.setData({ feeHint: '' });
+      return;
+    }
+    const account = accountIndex >= 0 ? accounts[accountIndex] : null;
+    if (!account || !hasFeeRates(account)) {
+      this.setData({ feeHint: '' });
+      return;
+    }
+    const trade = {
+      type: form.type,
+      product_type: form.product_type || '',
+      exchange: form.exchange || 'SH',
+      amount: parseFloat(form.amount) || 0,
+      shares: parseFloat(form.shares) || 0,
+      price: parseFloat(form.price) || 0,
+    };
+    const fee = calcTradeFee(account, trade);
+    if (fee > 0) {
+      this.setData({
+        'form.fee': String(fee.toFixed(2)),
+        feeHint: `按账户费率自动计算：¥${fee.toFixed(2)}（手动修改后将不再覆盖）`,
+      });
+    } else {
+      this.setData({ feeHint: '' });
+    }
   },
 
   onNoteInput(e) {
@@ -313,6 +366,8 @@ Page({
         type,
         product_code: form.product_code || '',
         product_name: form.product_name || '',
+        product_type: form.product_type || '',
+        exchange: form.exchange || '',
         shares,
         price,
         amount,

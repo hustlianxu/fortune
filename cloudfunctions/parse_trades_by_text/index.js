@@ -75,7 +75,7 @@ function buildParsePrompt(text) {
 2. 金额"36块5""36.5""36元5"都解析为 36.50
 3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
 4. 产品代码缺失时填空字符串，产品名称尽量保留原文
-5. 手续费单独解析为 fee 字段（单位：元），若无则填 0
+5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
 6. 分红/利息类交易 shares 和 price 填 0，amount 填实际金额
 7. buy/sell 的 amount = shares × price（不含手续费）
 8. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
@@ -225,6 +225,8 @@ function normalizeTrade(t, warnings) {
     type,
     product_name: String(t.product_name || ''),
     product_code: String(t.product_code || ''),
+    product_type: String(t.product_type || ''),
+    exchange: String(t.exchange || ''),
     shares,
     price,
     fee,
@@ -232,6 +234,128 @@ function normalizeTrade(t, warnings) {
     trade_date: tradeDate,
     note: String(t.note || ''),
   };
+}
+
+/**
+ * 根据账户费率自动计算手续费（与 miniprogram/utils/fee.js 口径一致）
+ * 证券：佣金 = max(金额×佣金率, 最低佣金) + 过户费(沪市) + 印花税(仅卖出)
+ * 基金：申购费 = max(金额×申购费率, 最低申购费)；赎回费 = 金额×赎回费率
+ */
+function calcTradeFee(account, trade) {
+  if (!account || !trade) return 0;
+  const type = trade.type;
+  if (type !== 'buy' && type !== 'sell') return 0;
+
+  const productType = trade.product_type || '';
+  const exchange = (trade.exchange || 'SH').toUpperCase();
+  const amount = Number(trade.amount) > 0
+    ? Number(trade.amount)
+    : (Number(trade.shares) || 0) * (Number(trade.price) || 0);
+  if (amount <= 0) return 0;
+
+  const stockTypes = ['stock', 'etf', 'lof', 'reit', 'hk_stock', 'us_stock'];
+  if (stockTypes.indexOf(productType) >= 0) {
+    const isSh = exchange === 'SH';
+    const isSz = exchange === 'SZ';
+    let rate = 0, minFee = 0;
+    if (productType === 'etf' || productType === 'reit') {
+      rate = isSh ? account.sh_etf_rate : (isSz ? account.sz_etf_rate : 0);
+      minFee = isSh ? account.sh_etf_min : (isSz ? account.sz_etf_min : 0);
+    } else if (productType === 'lof') {
+      rate = isSh ? account.sh_lof_rate : (isSz ? account.sz_lof_rate : 0);
+      minFee = isSh ? account.sh_lof_min : (isSz ? account.sz_lof_min : 0);
+    } else {
+      rate = isSh ? account.sh_stock_rate : (isSz ? account.sz_stock_rate : 0);
+      minFee = isSh ? account.sh_stock_min : (isSz ? account.sz_stock_min : 0);
+    }
+    let fee = Math.max(amount * (Number(rate) || 0), Number(minFee) || 0);
+    if (isSh) fee += amount * (Number(account.transfer_fee_rate) || 0);
+    if (type === 'sell') fee += amount * (Number(account.stamp_duty_rate) || 0);
+    return Number(fee.toFixed(2));
+  }
+
+  if (productType.indexOf('fund') === 0) {
+    if (type === 'buy') {
+      const rate = Number(account.subscription_fee_rate) || 0;
+      const minFee = Number(account.subscription_fee_min) || 0;
+      return Number(Math.max(amount * rate, minFee).toFixed(2));
+    }
+    if (type === 'sell') {
+      const rate = Number(account.redemption_fee_rate) || 0;
+      return Number((amount * rate).toFixed(2));
+    }
+  }
+  return 0;
+}
+
+function hasFeeRates(account) {
+  if (!account) return false;
+  return [
+    account.sh_stock_rate, account.sh_etf_rate, account.sh_lof_rate,
+    account.sz_stock_rate, account.sz_etf_rate, account.sz_lof_rate,
+    account.transfer_fee_rate, account.stamp_duty_rate,
+    account.subscription_fee_rate, account.redemption_fee_rate,
+  ].some(v => Number(v) > 0);
+}
+
+/**
+ * 对解析后的 trades 做后处理：
+ * - 推断 product_type / exchange（用于费率计算和写入）
+ * - fee 缺失（0）时按账户费率自动计算
+ */
+async function postProcessTrades(trades, account_id, warnings) {
+  if (!trades || trades.length === 0) return trades;
+
+  // 拉账户
+  let account = null;
+  try {
+    const accRes = await db.collection('accounts').doc(account_id).get();
+    account = accRes.data || null;
+  } catch (e) {
+    console.warn('[postProcess] account not found:', account_id, e);
+  }
+
+  // 拉账户下已有持仓，用于补全 product_type / exchange
+  let holdingsMap = {};
+  if (account) {
+    try {
+      const { data: holdings } = await db.collection('holdings')
+        .where({ account_id }).get();
+      holdings.forEach(h => {
+        const key = (h.product_code || '').toUpperCase();
+        if (key) holdingsMap[key] = h;
+      });
+    } catch (e) {}
+  }
+
+  const accountHasRates = hasFeeRates(account);
+
+  return trades.map(t => {
+    // 用持仓补全 product_type / exchange（语音输入通常不带这些字段）
+    if ((!t.product_type || !t.exchange) && t.product_code) {
+      const h = holdingsMap[t.product_code.toUpperCase()];
+      if (h) {
+        if (!t.product_type) t.product_type = h.product_type || '';
+        if (!t.exchange) t.exchange = h.exchange || '';
+      }
+    }
+    // 没有持仓兜底时，按代码前缀粗略推断交易所
+    if (!t.exchange && t.product_code) {
+      const code = t.product_code;
+      if (/^(60[0-9]|68[0-9]|51[0-9]|50[0-9])/.test(code)) t.exchange = 'SH';
+      else if (/^(00[0-9]|30[0-9]|15[0-9]|16[0-9])/.test(code)) t.exchange = 'SZ';
+    }
+
+    // fee 缺失 → 按账户费率自动算
+    if ((t.type === 'buy' || t.type === 'sell') && Number(t.fee) === 0 && accountHasRates) {
+      const autoFee = calcTradeFee(account, t);
+      if (autoFee > 0) {
+        t.fee = autoFee;
+        warnings.push(`「${t.product_name || t.product_code}」手续费由账户费率自动计算：¥${autoFee.toFixed(2)}`);
+      }
+    }
+    return t;
+  });
 }
 
 /**
@@ -243,6 +367,8 @@ async function importTrade(trade, account_id) {
     type: trade.type,
     product_code: trade.product_code || '',
     product_name: trade.product_name || '',
+    product_type: trade.product_type || '',
+    exchange: trade.exchange || '',
     shares: trade.shares,
     price: trade.price,
     amount: trade.amount,
@@ -311,6 +437,8 @@ exports.main = async (event) => {
         return { success: false, message: 'JSON 必须是数组', trades: [], warnings: [] };
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
+      // 后处理：补全 product_type/exchange + 自动计算手续费
+      trades = await postProcessTrades(trades, account_id, warnings);
     } else {
       // text 模式：调 LLM 解析
       if (!text || !text.trim()) {
@@ -371,6 +499,8 @@ exports.main = async (event) => {
         };
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
+      // 后处理：补全 product_type/exchange + 自动计算手续费
+      trades = await postProcessTrades(trades, account_id, warnings);
     }
 
     if (trades.length === 0) {

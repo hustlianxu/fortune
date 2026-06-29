@@ -89,7 +89,8 @@
 
     <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell'}}">
       <text class="form-label">手续费</text>
-      <input class="input-field" type="digit" placeholder="0.00（选填，买入计入成本，与同花顺口径一致）" value="{{form.fee}}" bindinput="onFeeInput" />
+      <input class="input-field" type="digit" placeholder="留空将按账户费率自动计算（买入计入成本，与同花顺口径一致）" value="{{form.fee}}" bindinput="onFeeInput" />
+      <text class="form-hint" wx:if="{{feeHint}}">{{feeHint}}</text>
     </view>
 
     <view class="form-group">
