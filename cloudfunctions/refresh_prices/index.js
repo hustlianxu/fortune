@@ -114,7 +114,10 @@ exports.main = async (event) => {
       if (!priceData || !priceData.price) continue;
 
       const marketValue = h.shares * priceData.price;
-      const costValue = h.cost_value || h.shares * h.cost_price;
+      // cost_value 为 0 是合法值（清仓持仓），仅在 null/undefined/NaN 时回退到 shares × cost_price
+      const costValue = (h.cost_value !== null && h.cost_value !== undefined && !isNaN(h.cost_value))
+        ? Number(h.cost_value)
+        : (Number(h.shares) || 0) * (Number(h.cost_price) || 0);
       const pnl = marketValue - costValue;
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
       const dailyChange = priceData.change || 0;

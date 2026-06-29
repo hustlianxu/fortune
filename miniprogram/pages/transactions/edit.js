@@ -25,10 +25,15 @@ Page({
       shares: '',
       price: '',
       amount: '',
+      fee: '',
       trade_date: '',
       note: '',
     },
     suggestions: [],        // 产品名搜索建议
+    codeSuggestions: [],    // 代码查询多匹配列表
+    codeLookupHint: '',     // 代码查询提示
+    currentShares: '',      // 来自持仓详情的当前持有份额（分红时自动填入）
+    _codeTimer: null,       // 代码输入防抖
     _nameTimer: null,
   },
 
@@ -63,6 +68,9 @@ Page({
       }
       if (options.product_code) patch['form.product_code'] = decodeURIComponent(options.product_code);
       if (options.product_name) patch['form.product_name'] = decodeURIComponent(options.product_name);
+      if (options.current_shares) {
+        patch.currentShares = decodeURIComponent(options.current_shares);
+      }
       // 从持仓详情进入时，默认选中「买入」
       if (options.from === 'holding' && options.product_code) {
         const buyIdx = typeKeys.indexOf('buy');
@@ -111,6 +119,7 @@ Page({
           shares: t.shares != null ? String(t.shares) : '',
           price: t.price != null ? String(t.price) : '',
           amount: t.amount != null ? String(t.amount) : '',
+          fee: t.fee != null ? String(t.fee) : '',
           trade_date: t.trade_date || '',
           note: t.note || '',
         },
@@ -131,15 +140,51 @@ Page({
 
   onTypeChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    this.setData({
+    const type = this.data.typeKeys[idx] || 'buy';
+    const patch = {
       typeIndex: idx,
-      'form.type': this.data.typeKeys[idx] || 'buy',
-    });
+      'form.type': type,
+    };
+    // 选分红时，自动填入当前持有份额（来自持仓详情传入）
+    if (type === 'dividend' && this.data.currentShares) {
+      patch['form.shares'] = this.data.currentShares;
+    }
+    this.setData(patch);
   },
 
   onCodeInput(e) {
     const code = e.detail.value;
-    this.setData({ 'form.product_code': code });
+    this.setData({ 'form.product_code': code, codeLookupHint: '', codeSuggestions: [] });
+
+    if (this.data._codeTimer) clearTimeout(this.data._codeTimer);
+
+    if (code.length < 4) return;
+
+    this.data._codeTimer = setTimeout(async () => {
+      try {
+        const res = await wx.cloud.callFunction({
+          name: 'lookup_product',
+          data: { code },
+        });
+        const products = res.result?.products || [];
+        if (products.length === 1) {
+          const p = products[0];
+          this.setData({
+            'form.product_name': p.name || '',
+            codeLookupHint: `找到: ${p.name} (${p.code})`,
+          });
+        } else if (products.length > 1) {
+          this.setData({
+            codeSuggestions: products,
+            codeLookupHint: `找到 ${products.length} 个匹配，请选择：`,
+          });
+        } else {
+          this.setData({ codeLookupHint: '未匹配到产品' });
+        }
+      } catch (err) {
+        console.error('[onCodeInput] lookup error:', err);
+      }
+    }, 500);
   },
 
   /**
@@ -174,6 +219,21 @@ Page({
       'form.product_code': ds.code || '',
       'form.product_name': ds.name || '',
       suggestions: [],
+      codeSuggestions: [],
+      codeLookupHint: '',
+    });
+  },
+
+  /**
+   * 选中代码查询匹配项
+   */
+  onCodeSuggestionClick(e) {
+    const ds = e.currentTarget.dataset;
+    this.setData({
+      'form.product_code': ds.code || '',
+      'form.product_name': ds.name || '',
+      codeSuggestions: [],
+      codeLookupHint: '',
     });
   },
 
@@ -191,6 +251,14 @@ Page({
 
   onAmountInput(e) {
     this.setData({ 'form.amount': e.detail.value });
+  },
+
+  onFeeInput(e) {
+    this.setData({ 'form.fee': e.detail.value });
+  },
+
+  onNoteInput(e) {
+    this.setData({ 'form.note': e.detail.value });
   },
 
   /**
@@ -236,6 +304,7 @@ Page({
 
     const shares = form.shares ? parseFloat(form.shares) : 0;
     const price = form.price ? parseFloat(form.price) : 0;
+    const fee = form.fee ? parseFloat(form.fee) : 0;
 
     wx.showLoading({ title: '保存中...' });
     try {
@@ -247,10 +316,33 @@ Page({
         shares,
         price,
         amount,
+        fee: isNaN(fee) ? 0 : Number(fee.toFixed(2)),
         trade_date: form.trade_date,
         note: form.note || '',
         updated_at: db.serverDate(),
       };
+
+      // 判断是否为建仓（首次买入）
+      let isOpening = false;
+      if (type === 'buy' && !isEdit) {
+        try {
+          // 检查是否已有该持仓
+          const existHolding = await db.collection('holdings')
+            .where({ account_id: form.account_id, product_code: form.product_code })
+            .limit(1).get();
+          if (!existHolding.data || existHolding.data.length === 0) {
+            // 无持仓，再查是否有过买入记录
+            const existBuy = await db.collection('transactions')
+              .where({ account_id: form.account_id, product_code: form.product_code, type: 'buy' })
+              .limit(1).get();
+            if (!existBuy.data || existBuy.data.length === 0) {
+              isOpening = true;
+            }
+          }
+        } catch (e) {
+          console.warn('[is_opening check] error:', e);
+        }
+      }
 
       let newTxnId = '';
       if (isEdit) {
@@ -258,7 +350,12 @@ Page({
         newTxnId = transactionId;
       } else {
         const addRes = await db.collection('transactions').add({
-          data: { ...data, created_at: db.serverDate(), applied_holding: false },
+          data: {
+            ...data,
+            created_at: db.serverDate(),
+            applied_holding: false,
+            is_opening: isOpening,
+          },
         });
         newTxnId = addRes._id;
       }
@@ -279,7 +376,10 @@ Page({
           }
         } catch (applyErr) {
           console.warn('[Transaction Edit] apply failed:', applyErr);
-          wx.showToast({ title: '已记录（持仓同步失败）', icon: 'none' });
+          const msg = applyErr.errMsg && applyErr.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
+            ? '已记录（请部署 apply_transaction 云函数）'
+            : '已记录（持仓同步失败）';
+          wx.showToast({ title: msg, icon: 'none' });
         }
       } else {
         wx.showToast({ title: '保存成功', icon: 'success' });

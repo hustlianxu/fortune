@@ -19,13 +19,31 @@
 
     <view class="form-group">
       <text class="form-label">产品代码 *</text>
-      <input class="input-field" placeholder="如：600036" model:value="{{form.product_code}}" bindinput="onCodeInput" />
+      <input class="input-field" placeholder="如：600036" value="{{form.product_code}}" bindinput="onCodeInput" />
       <view class="lookup-hint" wx:if="{{codeLookupHint}}">{{codeLookupHint}}</view>
+      <view class="suggestions" wx:if="{{codeSuggestions.length > 0}}">
+        <view
+          class="suggestion-item"
+          wx:for="{{codeSuggestions}}"
+          wx:key="code"
+          bindtap="onCodeSuggestionClick"
+          data-code="{{item.code}}"
+          data-name="{{item.name}}"
+          data-type="{{item.type}}"
+          data-exchange="{{item.exchange}}"
+        >
+          <view class="suggestion-left">
+            <text class="suggestion-name">{{item.name}}</text>
+            <text class="suggestion-code">{{item.code}}</text>
+          </view>
+          <text class="suggestion-type tag-{{item.type}}">{{c.productTypeName(item.type)}}</text>
+        </view>
+      </view>
     </view>
 
     <view class="form-group">
       <text class="form-label">产品名称</text>
-      <input class="input-field" placeholder="如：招商银行" model:value="{{form.product_name}}" bindinput="onNameInput" />
+      <input class="input-field" placeholder="如：招商银行" value="{{form.product_name}}" bindinput="onNameInput" />
       <!-- 名称搜索建议 -->
       <view class="suggestions" wx:if="{{suggestions.length > 0}}">
         <view
@@ -69,12 +87,12 @@
 
     <view class="form-group">
       <text class="form-label">持有份额 *</text>
-      <input class="input-field" type="digit" placeholder="0" model:value="{{form.shares}}" />
+      <input class="input-field" type="digit" placeholder="0" value="{{form.shares}}" bindinput="onSharesInput" />
     </view>
 
     <view class="form-group">
       <text class="form-label">成本单价 *</text>
-      <input class="input-field" type="digit" placeholder="0.00" model:value="{{form.cost_price}}" />
+      <input class="input-field" type="digit" placeholder="0.00" value="{{form.cost_price}}" bindinput="onCostPriceInput" />
     </view>
 
     <view class="form-group">
@@ -89,7 +107,39 @@
 
     <view class="form-group">
       <text class="form-label">备注</text>
-      <input class="input-field" placeholder="可选" model:value="{{form.note}}" />
+      <input class="input-field" placeholder="可选" value="{{form.note}}" bindinput="onNoteInput" />
+    </view>
+  </view>
+
+  <!-- 策略/跟投计划标签 -->
+  <view class="card">
+    <view class="card-title">跟投策略</view>
+    <text class="fee-desc">标记此持仓属于哪个跟投计划，同一策略的持仓可聚合查看</text>
+    <view class="form-group">
+      <text class="form-label">策略/计划名称</text>
+      <input class="input-field" placeholder="如：长赢150份、S定投、螺丝钉定投…（留空不归类）" value="{{form.strategy}}" bindinput="onStrategyInput" />
+    </view>
+  </view>
+
+  <!-- 单基金费率覆盖（基金账户适用，优先级高于账户层级配置） -->
+  <view class="card" wx:if="{{currentAccountType === 'fund_platform'}}">
+    <view class="card-title">单基金费率覆盖</view>
+    <text class="fee-desc">已填则优先使用本设置，留空则使用账户默认费率。管理费/托管费/投顾费为年化费率。</text>
+
+    <view class="fee-row">
+      <view class="fee-group">
+        <text class="form-label">管理费（年化）</text>
+        <input class="input-field fee-input" placeholder="如 0.012（1.2%）" type="digit" value="{{form.management_fee_rate}}" bindinput="onMgmtFeeInput" />
+      </view>
+      <view class="fee-group">
+        <text class="form-label">托管费（年化）</text>
+        <input class="input-field fee-input" placeholder="如 0.002（0.2%）" type="digit" value="{{form.custodian_fee_rate}}" bindinput="onCustodianFeeInput" />
+      </view>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">投顾费（年化，可选）</text>
+      <input class="input-field" placeholder="如 0.005（0.5%）" type="digit" value="{{form.advisory_fee_rate}}" bindinput="onAdvisoryFeeInput" />
     </view>
   </view>
 

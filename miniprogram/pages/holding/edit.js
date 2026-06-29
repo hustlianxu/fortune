@@ -25,8 +25,16 @@ Page({
       cost_price: '',
       buy_date: '',
       note: '',
+      // 策略/跟投计划标签
+      strategy: '',
+      // 单基金费率覆盖（优先级 > 账户层级配置）
+      management_fee_rate: '',
+      custodian_fee_rate: '',
+      advisory_fee_rate: '',
     },
+    currentAccountType: '',  // 当前选中账户的类型，用于显示费率覆盖
     suggestions: [],      // 名称搜索建议列表
+    codeSuggestions: [],  // 代码查询多匹配列表
     codeLookupHint: '',    // 代码查询提示
     _codeTimer: null,      // 代码输入防抖
     _nameTimer: null,      // 名称输入防抖
@@ -87,9 +95,11 @@ Page({
       if (!h) return;
 
       const accIdx = this.data.accounts.findIndex(a => a._id === h.account_id);
+      const acc = this.data.accounts[accIdx] || {};
       this.setData({
         accountIndex: Math.max(0, accIdx),
         exchangeIndex: ['SH', 'SZ', 'HK', 'US'].indexOf(h.exchange) || 0,
+        currentAccountType: acc.type || '',
         form: {
           account_id: h.account_id || '',
           product_code: h.product_code || '',
@@ -100,6 +110,10 @@ Page({
           cost_price: String(h.cost_price || ''),
           buy_date: h.buy_date || '',
           note: h.note || '',
+          strategy: h.strategy || '',
+          management_fee_rate: h.management_fee_rate != null ? String(h.management_fee_rate) : '',
+          custodian_fee_rate: h.custodian_fee_rate != null ? String(h.custodian_fee_rate) : '',
+          advisory_fee_rate: h.advisory_fee_rate != null ? String(h.advisory_fee_rate) : '',
         },
       });
     } catch (err) {
@@ -112,7 +126,7 @@ Page({
    */
   onCodeInput(e) {
     const code = e.detail.value;
-    this.setData({ 'form.product_code': code, codeLookupHint: '' });
+    this.setData({ 'form.product_code': code, codeLookupHint: '', codeSuggestions: [] });
 
     if (this.data._codeTimer) clearTimeout(this.data._codeTimer);
 
@@ -125,13 +139,18 @@ Page({
           data: { code },
         });
         const products = res.result?.products || [];
-        if (products.length > 0) {
+        if (products.length === 1) {
           const p = products[0];
           this.setData({
             'form.product_name': p.name || '',
             'form.product_type': p.type || this.data.form.product_type,
             'form.exchange': p.exchange || this.data.form.exchange,
             codeLookupHint: `找到: ${p.name} (${p.code})`,
+          });
+        } else if (products.length > 1) {
+          this.setData({
+            codeSuggestions: products,
+            codeLookupHint: `找到 ${products.length} 个匹配，请选择：`,
           });
         } else {
           this.setData({ codeLookupHint: '未匹配到产品，请手动输入名称' });
@@ -185,11 +204,28 @@ Page({
     });
   },
 
+  /**
+   * 选中代码查询匹配项（多匹配时从下拉列表选择）
+   */
+  onCodeSuggestionClick(e) {
+    const ds = e.currentTarget.dataset;
+    this.setData({
+      'form.product_code': ds.code || '',
+      'form.product_name': ds.name || '',
+      'form.product_type': ds.type || 'stock',
+      'form.exchange': ds.exchange || 'SH',
+      codeSuggestions: [],
+      codeLookupHint: '',
+    });
+  },
+
   onAccountChange(e) {
     const idx = e.detail.value;
+    const acc = this.data.accounts[idx] || {};
     this.setData({
       accountIndex: idx,
-      'form.account_id': this.data.accounts[idx]?._id || '',
+      'form.account_id': acc._id || '',
+      currentAccountType: acc.type || '',
     });
   },
 
@@ -222,6 +258,34 @@ Page({
     this.setData({ 'form.buy_date': e.detail.value });
   },
 
+  onSharesInput(e) {
+    this.setData({ 'form.shares': e.detail.value });
+  },
+
+  onCostPriceInput(e) {
+    this.setData({ 'form.cost_price': e.detail.value });
+  },
+
+  onNoteInput(e) {
+    this.setData({ 'form.note': e.detail.value });
+  },
+
+  onStrategyInput(e) {
+    this.setData({ 'form.strategy': e.detail.value });
+  },
+
+  onMgmtFeeInput(e) {
+    this.setData({ 'form.management_fee_rate': e.detail.value });
+  },
+
+  onCustodianFeeInput(e) {
+    this.setData({ 'form.custodian_fee_rate': e.detail.value });
+  },
+
+  onAdvisoryFeeInput(e) {
+    this.setData({ 'form.advisory_fee_rate': e.detail.value });
+  },
+
   async onSave() {
     if (!this.data.form.account_id) {
       wx.showToast({ title: '请选择账户', icon: 'none' });
@@ -247,12 +311,13 @@ Page({
       const costPrice = parseFloat(this.data.form.cost_price);
       const costValue = shares * costPrice;
 
+      const f = this.data.form;
       const data = {
-        account_id: this.data.form.account_id,
-        product_code: this.data.form.product_code,
-        product_name: this.data.form.product_name || this.data.form.product_code,
-        product_type: this.data.form.product_type,
-        exchange: this.data.form.exchange,
+        account_id: f.account_id,
+        product_code: f.product_code,
+        product_name: f.product_name || f.product_code,
+        product_type: f.product_type,
+        exchange: f.exchange,
         shares,
         cost_price: costPrice,
         current_price: costPrice,
@@ -260,8 +325,14 @@ Page({
         market_value: costValue,
         pnl: 0,
         pnl_percent: 0,
-        buy_date: this.data.form.buy_date,
-        note: this.data.form.note,
+        buy_date: f.buy_date,
+        note: f.note,
+        // 策略/跟投计划标签
+        strategy: f.strategy || '',
+        // 单基金费率覆盖（优先级高于账户层级配置）
+        management_fee_rate: parseFloat(f.management_fee_rate) || 0,
+        custodian_fee_rate: parseFloat(f.custodian_fee_rate) || 0,
+        advisory_fee_rate: parseFloat(f.advisory_fee_rate) || 0,
         updated_at: db.serverDate(),
       };
 

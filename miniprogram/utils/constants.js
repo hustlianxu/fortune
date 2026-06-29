@@ -138,6 +138,7 @@ const CLOUD_FUNCTIONS = {
   GET_HOLDINGS_ANALYSIS: 'get_holdings_analysis',
   PARSE_IMPORT: 'parse_import',
   EXPORT_DATA: 'export_data',
+  PARSE_TRADES_BY_TEXT: 'parse_trades_by_text',
 };
 
 module.exports = {

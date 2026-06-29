@@ -2,6 +2,57 @@
 .page { padding-bottom: 40rpx; }
 .page-title { font-size: 36rpx; font-weight: 600; color: var(--text-primary); }
 
+/* ═══════ 策略卡片（横向滚动）═══════ */
+.strategy-section { margin-bottom: 12rpx; }
+.strategy-scroll {
+  display: flex;
+  flex-direction: row;
+  white-space: nowrap;
+  padding: 0 0 8rpx;
+}
+.strategy-card {
+  display: inline-flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 2rpx solid var(--border-color);
+  border-radius: 16rpx;
+  padding: 16rpx 20rpx;
+  margin-right: 16rpx;
+  min-width: 160rpx;
+  flex-shrink: 0;
+}
+.strategy-card.active {
+  border-color: var(--primary-color);
+  background: var(--primary-soft);
+}
+.strategy-name {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strategy-value {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.strategy-pnl {
+  font-size: 24rpx;
+  margin-top: 4rpx;
+}
+.strategy-pnl-pct {
+  font-size: 22rpx;
+  margin-left: 4rpx;
+}
+.strategy-count {
+  font-size: 20rpx;
+  color: var(--text-tertiary);
+  margin-top: 4rpx;
+}
+
+/* ═══════ 账户标题 ═══════ */
 .acc-header {
   display: flex;
   align-items: center;
@@ -12,6 +63,7 @@
 .acc-value { font-size: 28rpx; font-weight: 500; color: var(--text-primary); margin-right: var(--space-md); }
 .toggle-icon { font-size: 24rpx; color: var(--text-tertiary); }
 
+/* ═══════ 持仓项 ═══════ */
 .holding-item {
   padding: var(--space-md) 0;
   border-bottom: 1rpx solid var(--divider-color);
@@ -21,8 +73,22 @@
   justify-content: space-between;
   margin-bottom: var(--space-xs);
 }
-.holding-name { font-size: 28rpx; font-weight: 500; color: var(--text-primary); }
-.holding-pnl { font-size: 26rpx; font-weight: 500; }
+.holding-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  flex: 1;
+  min-width: 0;
+}
+.holding-name {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.holding-pnl { font-size: 26rpx; font-weight: 500; white-space: nowrap; }
 .holding-body { display: flex; align-items: center; margin-bottom: var(--space-xs); }
 .holding-code { font-size: 24rpx; color: var(--text-tertiary); margin-right: var(--space-sm); }
 .holding-footer { display: flex; gap: var(--space-md); }
@@ -30,3 +96,19 @@
 
 .acc-footer { padding: var(--space-sm) 0; }
 .expand-hint { font-size: 24rpx; color: var(--text-tertiary); }
+
+/* ═══════ 策略标签（持仓行上的小标签）═══════ */
+.strategy-badge {
+  font-size: 20rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  background: var(--primary-soft);
+  color: var(--primary-color);
+  border: 1rpx solid var(--primary-color);
+  line-height: 1.4;
+  flex-shrink: 0;
+  max-width: 140rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

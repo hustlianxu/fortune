@@ -1,0 +1,10 @@
+{
+  "name": "parse_trades_by_text",
+  "version": "1.0.0",
+  "description": "Parse natural-language trade descriptions into structured transactions via LLM, with optional batch import.",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest",
+    "crypto": "latest"
+  }
+}

@@ -13,30 +13,32 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const http = require('./http');
+const iconv = require('iconv-lite');
 
 /**
  * 通过腾讯行情接口查询股票/ETF/LOF
  */
 async function queryByCode(code) {
   const codeStr = code.trim().toUpperCase();
-  // 自动判断交易所前缀
   const prefixes = ['sh', 'sz', 'hk'];
-  const results = [];
 
-  for (const prefix of prefixes) {
-    try {
-      const url = `https://qt.gtimg.cn/q=${prefix}${codeStr}`;
-      const text = await http.getText(url);
-      const parsed = parseTencentLine(text);
-      if (parsed) {
-        results.push(parsed);
-        break; // 找到就停
+  // 并行查询所有交易所前缀，并用 iconv-lite 解码 GBK 数据避免乱码
+  const results = await Promise.all(
+    prefixes.map(async (prefix) => {
+      try {
+        const url = `https://qt.gtimg.cn/q=${prefix}${codeStr}`;
+        const res = await http.request(url);
+        const buf = await res.buffer();
+        const text = iconv.decode(buf, 'gbk');
+        const parsed = parseTencentLine(text);
+        return (parsed && parsed.name && parsed.code) ? parsed : null;
+      } catch (e) {
+        return null;
       }
-    } catch (e) {
-      continue;
-    }
-  }
-  return results;
+    })
+  );
+
+  return results.filter(r => r !== null);
 }
 
 function parseTencentLine(text) {

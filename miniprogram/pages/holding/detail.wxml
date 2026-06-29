@@ -63,16 +63,33 @@
     </view>
   </view>
 
-  <!-- 最近交易 -->
-  <view class="card" wx:if="{{recentTransactions.length > 0}}">
-    <view class="section-title">最近交易</view>
+  <!-- 累计成本趋势图 -->
+  <view class="card" wx:if="{{transactions.length >= 2}}">
+    <view class="section-title">累计投入趋势</view>
+    <view class="chart-wrap">
+      <canvas type="2d" id="costChart" class="cost-chart"></canvas>
+    </view>
+  </view>
+
+  <!-- 交易列表 -->
+  <view class="card" wx:if="{{transactions.length > 0}}">
+    <view class="section-title">全部交易（{{transactions.length}}）</view>
     <view
       class="recent-txn"
-      wx:for="{{recentTransactions}}"
+      wx:for="{{transactions}}"
       wx:key="_id"
+      data-id="{{item._id}}"
+      bindlongpress="onLongPressTxn"
+      bindtap="onEditTxn"
     >
       <view class="recent-txn-left">
-        <text class="recent-txn-badge {{c.transactionTypeClass(item.type)}}">{{c.transactionTypeName(item.type)}}</text>
+        <view class="recent-txn-badge-row">
+          <text class="recent-txn-badge {{c.transactionTypeClass(item.type)}}">{{c.transactionTypeName(item.type)}}</text>
+          <text class="recent-txn-sync-indicator {{item.applied_holding ? 'synced' : 'pending'}}">
+            {{item.applied_holding ? '✓' : '⏳'}}
+          </text>
+          <text class="txn-build-badge" wx:if="{{item.type === 'buy' && item.is_opening}}">建仓</text>
+        </view>
         <text class="recent-txn-date">{{item.trade_date}}</text>
       </view>
       <view class="recent-txn-right">
@@ -84,7 +101,7 @@
     </view>
   </view>
 
-  <view class="empty-state" wx:else-if="{{holding._id && !loadingTxns}}">
+  <view class="empty-state" wx:elif="{{holding._id && !loadingTxns}}">
     <text>该持仓暂无交易记录</text>
     <text class="empty-hint">点击「记一笔买卖」开始记录</text>
   </view>

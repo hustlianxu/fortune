@@ -8,7 +8,7 @@
  * 流程：
  *   1. 拉取范围内全部 transactions，按 trade_date asc, created_at asc 排序
  *   2. 内存回放：每个 (account_id, product_code) 维护一个 holding
- *      - buy：累加份额 + 加权成本
+ *      - buy：累加份额 + 加权成本（含手续费，同花顺口径）
  *      - sell：扣减份额，归零标记清仓
  *      - 其他：跳过份额
  *   3. upsert 到 holdings 集合（按 account_id+product_code 定位）
@@ -74,6 +74,7 @@ exports.main = async (event) => {
 
       const shares = Number(t.shares) || 0;
       const price = Number(t.price) || 0;
+      const fee = Number(t.fee) || 0;   // 买入手续费（同花顺口径：计入持仓成本）
       if (shares <= 0) continue;
 
       const key = t.account_id + '|' + t.product_code;
@@ -94,15 +95,16 @@ exports.main = async (event) => {
       const h = holdingsMap[key];
 
       if (type === 'buy') {
+        // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
+        const buyCost = shares * price + fee;
         const oldShares = h.shares;
-        const oldCost = h.cost_price;
+        const oldCostValue = h.cost_value;
         const newShares = oldShares + shares;
-        const newCost = newShares > 0
-          ? (oldShares * oldCost + shares * price) / newShares
-          : price;
+        const newCostValue = oldCostValue + buyCost;
+        const newCost = newShares > 0 ? newCostValue / newShares : price;
         h.shares = newShares;
         h.cost_price = Number(newCost.toFixed(4));
-        h.cost_value = Number((newShares * newCost).toFixed(2));
+        h.cost_value = Number(newCostValue.toFixed(2));
         h.is_cleared = false;
         if (!h.buy_date) h.buy_date = t.trade_date || '';
         if (!h.product_name && t.product_name) h.product_name = t.product_name;

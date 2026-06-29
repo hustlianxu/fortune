@@ -1,6 +1,6 @@
 /**
  * 便携 HTTP 请求工具（基于 Node 内置 http/https 模块）
- * 兼容 Node.js 12/16/18，避免依赖 fetch / node-fetch
+ * 与 llm_gateway/http.js 保持一致，便于独立部署。
  */
 const https = require('https');
 const http = require('http');
@@ -40,7 +40,6 @@ function request(url, options = {}) {
             try { return Promise.resolve(JSON.parse(text)); }
             catch (e) { return Promise.reject(new Error(`JSON parse failed: ${e.message}`)); }
           },
-          buffer: () => Promise.resolve(buf),
         });
       });
     });
@@ -64,18 +63,4 @@ function request(url, options = {}) {
   });
 }
 
-async function getText(url, options = {}) {
-  const res = await request(url, options);
-  return res.text();
-}
-
-async function getJSON(url, options = {}) {
-  const res = await request(url, options);
-  return res.json();
-}
-
-module.exports = {
-  request,
-  getText,
-  getJSON,
-};
+module.exports = { request };

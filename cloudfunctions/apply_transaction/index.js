@@ -5,8 +5,8 @@
  * 入参：
  *   { transaction_id }  按已存在的交易记录应用
  *
- * 算法：
- *   买入：newShares = S + N；newCost = (S*C + N*P) / newShares
+ * 算法（与同花顺口径对齐：买入手续费计入持仓成本）：
+ *   买入：buyCost = N*P + fee；newCostValue = oldCostValue + buyCost；newCost = newCostValue / newShares
  *   卖出：newShares = S - N；cost_price 不变；归零则 is_cleared=true
  *   分红/利息/转账/手续费：不影响份额，仅记录（持仓不更新）
  *
@@ -50,6 +50,7 @@ exports.main = async (event) => {
 
     const shares = Number(txn.shares) || 0;
     const price = Number(txn.price) || 0;
+    const fee = Number(txn.fee) || 0;   // 买入手续费（与同花顺口径一致，计入持仓成本）
     if (shares <= 0) {
       return { success: false, message: '交易份额无效' };
     }
@@ -64,28 +65,29 @@ exports.main = async (event) => {
     let resultHolding;
 
     if (type === 'buy') {
+      // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
+      const buyCost = shares * price + fee;
       if (existing) {
-        // 累加份额 + 加权平均成本
+        // 累加份额 + 加权平均成本（以 cost_value 为权威值，避免 cost_price 与 cost_value 不一致漂移）
         const oldShares = Number(existing.shares) || 0;
-        const oldCost = Number(existing.cost_price) || 0;
+        const oldCostValue = Number(existing.cost_value) || (oldShares * Number(existing.cost_price || 0));
         const newShares = oldShares + shares;
-        const newCost = newShares > 0
-          ? (oldShares * oldCost + shares * price) / newShares
-          : price;
+        const newCostValue = oldCostValue + buyCost;
+        const newCost = newShares > 0 ? newCostValue / newShares : price;
 
         const updateData = {
           shares: newShares,
           cost_price: Number(newCost.toFixed(4)),
+          cost_value: Number(newCostValue.toFixed(2)),
           is_cleared: false,
           updated_at: db.serverDate(),
         };
-        // 重算成本金额
-        updateData.cost_value = Number((newShares * newCost).toFixed(2));
 
         await db.collection('holdings').doc(existing._id).update({ data: updateData });
         resultHolding = { ...existing, ...updateData };
       } else {
         // 新建持仓
+        const newCostPrice = shares > 0 ? buyCost / shares : price;
         const newHolding = {
           account_id: txn.account_id,
           product_code: txn.product_code,
@@ -93,8 +95,8 @@ exports.main = async (event) => {
           product_type: txn.product_type || '',
           exchange: txn.exchange || '',
           shares: shares,
-          cost_price: Number(price.toFixed(4)),
-          cost_value: Number((shares * price).toFixed(2)),
+          cost_price: Number(newCostPrice.toFixed(4)),
+          cost_value: Number(buyCost.toFixed(2)),
           current_price: price,
           market_value: Number((shares * price).toFixed(2)),
           pnl: 0,

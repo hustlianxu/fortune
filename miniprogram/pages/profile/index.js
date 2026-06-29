@@ -40,6 +40,10 @@ Page({
     wx.navigateTo({ url: '/pages/import/index' });
   },
 
+  onGoToVoiceImport() {
+    wx.navigateTo({ url: '/pages/import/voice' });
+  },
+
   onRebuildHoldings() {
     wx.showModal({
       title: '重建持仓',

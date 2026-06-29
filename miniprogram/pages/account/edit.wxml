@@ -7,7 +7,7 @@
   <view class="card">
     <view class="form-group">
       <text class="form-label">账户名称 *</text>
-      <input class="input-field" placeholder="如：华泰证券、且慢" model:value="{{form.name}}" />
+      <input class="input-field" placeholder="如：华泰证券、且慢" value="{{form.name}}" bindinput="onNameInput" />
     </view>
 
     <view class="form-group">
@@ -30,14 +30,158 @@
       </picker>
     </view>
 
+    <!-- 证券账户：客户号 -->
+    <view class="form-group" wx:if="{{form.type === 'stock'}}">
+      <text class="form-label">客户号</text>
+      <input class="input-field" placeholder="证券账户客户号（可选）" value="{{form.customer_no}}" bindinput="onCustomerNoInput" />
+    </view>
+
+    <!-- 证券账户：交易密码 -->
+    <view class="form-group" wx:if="{{form.type === 'stock'}}">
+      <text class="form-label">交易密码</text>
+      <input class="input-field" placeholder="券商交易密码（可选）" type="password" value="{{form.broker_password}}" bindinput="onBrokerPasswordInput" />
+    </view>
+
+    <!-- 基金账户：基金账户名 -->
+    <view class="form-group" wx:if="{{form.type === 'fund_platform'}}">
+      <text class="form-label">基金账户名</text>
+      <input class="input-field" placeholder="基金账户登录名（可选）" value="{{form.fund_account_name}}" bindinput="onFundAccountNameInput" />
+    </view>
+
+    <!-- 基金账户：账户密码 -->
+    <view class="form-group" wx:if="{{form.type === 'fund_platform'}}">
+      <text class="form-label">账户密码</text>
+      <input class="input-field" placeholder="基金账户密码（可选）" type="password" value="{{form.fund_password}}" bindinput="onFundPasswordInput" />
+    </view>
+
     <view class="form-group">
       <text class="form-label">账户余额</text>
-      <input class="input-field" placeholder="0.00" type="digit" model:value="{{form.cash_balance}}" />
+      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance}}" bindinput="onCashBalanceInput" />
     </view>
 
     <view class="form-group">
       <text class="form-label">备注</text>
-      <input class="input-field" placeholder="可选" model:value="{{form.note}}" />
+      <input class="input-field" placeholder="可选" value="{{form.note}}" bindinput="onNoteInput" />
+    </view>
+  </view>
+
+  <!-- ═══════ 证券账户费率（表格形式） ═══════ -->
+  <view class="card" wx:if="{{form.type === 'stock'}}">
+    <view class="card-title">佣金费率</view>
+
+    <!-- 沪市 -->
+    <view class="fee-market-section">
+      <text class="fee-market-label">沪市</text>
+      <view class="fee-table">
+        <view class="fee-tr fee-th">
+          <text class="fee-td fee-category">业务类别</text>
+          <text class="fee-td fee-rate">佣金费率</text>
+          <text class="fee-td fee-min">最低金额</text>
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">股票</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0003" type="digit" data-key="sh_stock_rate" value="{{form.sh_stock_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="5" type="digit" data-key="sh_stock_min" value="{{form.sh_stock_min}}" bindinput="onFeeInput" />
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">ETF</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0001" type="digit" data-key="sh_etf_rate" value="{{form.sh_etf_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="0" type="digit" data-key="sh_etf_min" value="{{form.sh_etf_min}}" bindinput="onFeeInput" />
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">LOF</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0001" type="digit" data-key="sh_lof_rate" value="{{form.sh_lof_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="5" type="digit" data-key="sh_lof_min" value="{{form.sh_lof_min}}" bindinput="onFeeInput" />
+        </view>
+      </view>
+    </view>
+
+    <!-- 深市 -->
+    <view class="fee-market-section">
+      <text class="fee-market-label">深市</text>
+      <view class="fee-table">
+        <view class="fee-tr fee-th">
+          <text class="fee-td fee-category">业务类别</text>
+          <text class="fee-td fee-rate">佣金费率</text>
+          <text class="fee-td fee-min">最低金额</text>
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">股票</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0003" type="digit" data-key="sz_stock_rate" value="{{form.sz_stock_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="5" type="digit" data-key="sz_stock_min" value="{{form.sz_stock_min}}" bindinput="onFeeInput" />
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">ETF</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0001" type="digit" data-key="sz_etf_rate" value="{{form.sz_etf_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="0" type="digit" data-key="sz_etf_min" value="{{form.sz_etf_min}}" bindinput="onFeeInput" />
+        </view>
+        <view class="fee-tr">
+          <text class="fee-td fee-category">LOF</text>
+          <input class="fee-td fee-input-cell" placeholder="0.0001" type="digit" data-key="sz_lof_rate" value="{{form.sz_lof_rate}}" bindinput="onFeeInput" />
+          <input class="fee-td fee-input-cell" placeholder="5" type="digit" data-key="sz_lof_min" value="{{form.sz_lof_min}}" bindinput="onFeeInput" />
+        </view>
+      </view>
+    </view>
+
+    <view class="fee-divider"></view>
+    <view class="card-subtitle">其他费用</view>
+
+    <view class="fee-simple-row">
+      <view class="fee-simple-item">
+        <text class="form-label">过户费费率</text>
+        <input class="input-field" placeholder="万0.1 = 0.00001" type="digit" value="{{form.transfer_fee_rate}}" bindinput="onTransferFeeRateInput" />
+      </view>
+      <view class="fee-simple-item">
+        <text class="form-label">印花税费率</text>
+        <input class="input-field" placeholder="万5 = 0.0005（仅卖出）" type="digit" value="{{form.stamp_duty_rate}}" bindinput="onStampDutyRateInput" />
+      </view>
+    </view>
+  </view>
+
+  <!-- ═══════ 基金平台费率 ═══════ -->
+  <view class="card" wx:if="{{form.type === 'fund_platform'}}">
+    <view class="card-title">交易费率设置</view>
+    <text class="fee-desc">申购费（买入）+ 赎回费（卖出）</text>
+
+    <view class="fee-row">
+      <view class="fee-group">
+        <text class="form-label">申购费率</text>
+        <input class="input-field fee-input" placeholder="如 0.001（打1折后）" type="digit" value="{{form.subscription_fee_rate}}" bindinput="onSubscriptionFeeRateInput" />
+      </view>
+      <view class="fee-group">
+        <text class="form-label">申购最低收费（元）</text>
+        <input class="input-field fee-input" placeholder="默认 0" type="digit" value="{{form.subscription_fee_min}}" bindinput="onSubscriptionFeeMinInput" />
+      </view>
+    </view>
+
+    <view class="fee-row">
+      <view class="fee-group">
+        <text class="form-label">赎回费率</text>
+        <input class="input-field fee-input" placeholder="如 0.005" type="digit" value="{{form.redemption_fee_rate}}" bindinput="onRedemptionFeeRateInput" />
+      </view>
+      <view class="fee-group">
+        <text class="form-label">赎回最低收费（元）</text>
+        <input class="input-field fee-input" placeholder="默认 0" type="digit" value="{{form.redemption_fee_min}}" bindinput="onRedemptionFeeMinInput" />
+      </view>
+    </view>
+
+    <view class="fee-divider"></view>
+    <text class="card-subtitle">年化费率（从净值中每日计提，仅供参考）</text>
+
+    <view class="fee-row">
+      <view class="fee-group">
+        <text class="form-label">管理费（年化）</text>
+        <input class="input-field fee-input" placeholder="如 0.012（1.2%）" type="digit" value="{{form.management_fee_rate}}" bindinput="onManagementFeeRateInput" />
+      </view>
+      <view class="fee-group">
+        <text class="form-label">托管费（年化）</text>
+        <input class="input-field fee-input" placeholder="如 0.002（0.2%）" type="digit" value="{{form.custodian_fee_rate}}" bindinput="onCustodianFeeRateInput" />
+      </view>
+    </view>
+
+    <view class="fee-group" wx:if="{{form.type === 'fund_platform'}}">
+      <text class="form-label">投顾费（年化，可选）</text>
+      <input class="input-field" placeholder="如 0.005（0.5%）" type="digit" value="{{form.advisory_fee_rate}}" bindinput="onAdvisoryFeeRateInput" />
     </view>
   </view>
 

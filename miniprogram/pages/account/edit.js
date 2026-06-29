@@ -13,6 +13,37 @@ Page({
       platform: '',
       cash_balance: '',
       note: '',
+      // 证券账户专属字段
+      customer_no: '',
+      broker_password: '',
+      // 基金账户专属字段
+      fund_account_name: '',
+      fund_password: '',
+      // ═══ 证券账户费率（沪市） ═══
+      sh_stock_rate: '',
+      sh_stock_min: '',
+      sh_etf_rate: '',
+      sh_etf_min: '',
+      sh_lof_rate: '',
+      sh_lof_min: '',
+      // ═══ 证券账户费率（深市） ═══
+      sz_stock_rate: '',
+      sz_stock_min: '',
+      sz_etf_rate: '',
+      sz_etf_min: '',
+      sz_lof_rate: '',
+      sz_lof_min: '',
+      // ═══ 其他费用 ═══
+      transfer_fee_rate: '0.00001', // 过户费率（万0.1 = 0.00001）
+      stamp_duty_rate: '0.0005',    // 印花税率（万5 = 0.0005，仅卖出）
+      // ═══ 基金平台费率 ═══
+      subscription_fee_rate: '',     // 申购费率
+      subscription_fee_min: '0',     // 申购最低收费
+      redemption_fee_rate: '',       // 赎回费率
+      redemption_fee_min: '0',       // 赎回最低收费
+      management_fee_rate: '',       // 管理费（年化）
+      custodian_fee_rate: '',        // 托管费（年化）
+      advisory_fee_rate: '',         // 投顾费（年化，可选）
     },
     typeIndex: 0,
     typeOptions: [],
@@ -51,6 +82,35 @@ Page({
           platform: account.platform || '',
           cash_balance: String(account.cash_balance || ''),
           note: account.note || '',
+          customer_no: account.customer_no || '',
+          broker_password: account.broker_password || '',
+          fund_account_name: account.fund_account_name || '',
+          fund_password: account.fund_password || '',
+          // 证券费率（沪市）
+          sh_stock_rate: account.sh_stock_rate != null ? String(account.sh_stock_rate) : '',
+          sh_stock_min: account.sh_stock_min != null ? String(account.sh_stock_min) : '',
+          sh_etf_rate: account.sh_etf_rate != null ? String(account.sh_etf_rate) : '',
+          sh_etf_min: account.sh_etf_min != null ? String(account.sh_etf_min) : '',
+          sh_lof_rate: account.sh_lof_rate != null ? String(account.sh_lof_rate) : '',
+          sh_lof_min: account.sh_lof_min != null ? String(account.sh_lof_min) : '',
+          // 证券费率（深市）
+          sz_stock_rate: account.sz_stock_rate != null ? String(account.sz_stock_rate) : '',
+          sz_stock_min: account.sz_stock_min != null ? String(account.sz_stock_min) : '',
+          sz_etf_rate: account.sz_etf_rate != null ? String(account.sz_etf_rate) : '',
+          sz_etf_min: account.sz_etf_min != null ? String(account.sz_etf_min) : '',
+          sz_lof_rate: account.sz_lof_rate != null ? String(account.sz_lof_rate) : '',
+          sz_lof_min: account.sz_lof_min != null ? String(account.sz_lof_min) : '',
+          // 其他费用
+          transfer_fee_rate: account.transfer_fee_rate != null ? String(account.transfer_fee_rate) : '0.00001',
+          stamp_duty_rate: account.stamp_duty_rate != null ? String(account.stamp_duty_rate) : '0.0005',
+          // 基金费率
+          subscription_fee_rate: account.subscription_fee_rate != null ? String(account.subscription_fee_rate) : '',
+          subscription_fee_min: account.subscription_fee_min != null ? String(account.subscription_fee_min) : '0',
+          redemption_fee_rate: account.redemption_fee_rate != null ? String(account.redemption_fee_rate) : '',
+          redemption_fee_min: account.redemption_fee_min != null ? String(account.redemption_fee_min) : '0',
+          management_fee_rate: account.management_fee_rate != null ? String(account.management_fee_rate) : '',
+          custodian_fee_rate: account.custodian_fee_rate != null ? String(account.custodian_fee_rate) : '',
+          advisory_fee_rate: account.advisory_fee_rate != null ? String(account.advisory_fee_rate) : '',
         },
       });
       this.updatePlatforms(typeIdx, account.platform);
@@ -88,6 +148,79 @@ Page({
     });
   },
 
+  onNameInput(e) {
+    this.setData({ 'form.name': e.detail.value });
+  },
+
+  onCashBalanceInput(e) {
+    this.setData({ 'form.cash_balance': e.detail.value });
+  },
+
+  onNoteInput(e) {
+    this.setData({ 'form.note': e.detail.value });
+  },
+
+  onCustomerNoInput(e) {
+    this.setData({ 'form.customer_no': e.detail.value });
+  },
+
+  onBrokerPasswordInput(e) {
+    this.setData({ 'form.broker_password': e.detail.value });
+  },
+
+  onFundAccountNameInput(e) {
+    this.setData({ 'form.fund_account_name': e.detail.value });
+  },
+
+  onFundPasswordInput(e) {
+    this.setData({ 'form.fund_password': e.detail.value });
+  },
+
+  // ═══ 佣金表格通用输入 （通过 data-key 确定字段名） ═══
+  onFeeInput(e) {
+    const key = e.currentTarget.dataset.key;
+    if (key) {
+      this.setData({ ['form.' + key]: e.detail.value });
+    }
+  },
+
+  onTransferFeeRateInput(e) {
+    this.setData({ 'form.transfer_fee_rate': e.detail.value });
+  },
+
+  onStampDutyRateInput(e) {
+    this.setData({ 'form.stamp_duty_rate': e.detail.value });
+  },
+
+  // ═══ 基金费率输入 ═══
+  onSubscriptionFeeRateInput(e) {
+    this.setData({ 'form.subscription_fee_rate': e.detail.value });
+  },
+
+  onSubscriptionFeeMinInput(e) {
+    this.setData({ 'form.subscription_fee_min': e.detail.value });
+  },
+
+  onRedemptionFeeRateInput(e) {
+    this.setData({ 'form.redemption_fee_rate': e.detail.value });
+  },
+
+  onRedemptionFeeMinInput(e) {
+    this.setData({ 'form.redemption_fee_min': e.detail.value });
+  },
+
+  onManagementFeeRateInput(e) {
+    this.setData({ 'form.management_fee_rate': e.detail.value });
+  },
+
+  onCustodianFeeRateInput(e) {
+    this.setData({ 'form.custodian_fee_rate': e.detail.value });
+  },
+
+  onAdvisoryFeeRateInput(e) {
+    this.setData({ 'form.advisory_fee_rate': e.detail.value });
+  },
+
   async onSave() {
     if (!this.data.form.name) {
       wx.showToast({ title: '请输入账户名称', icon: 'none' });
@@ -97,12 +230,43 @@ Page({
     wx.showLoading({ title: '保存中...' });
     try {
       const db = wx.cloud.database();
+      const f = this.data.form;
       const data = {
-        name: this.data.form.name,
-        type: this.data.form.type,
-        platform: this.data.form.platform,
-        cash_balance: parseFloat(this.data.form.cash_balance) || 0,
-        note: this.data.form.note,
+        name: f.name,
+        type: f.type,
+        platform: f.platform,
+        cash_balance: parseFloat(f.cash_balance) || 0,
+        note: f.note,
+        // 账户类型专属字段
+        customer_no: f.customer_no || '',
+        broker_password: f.broker_password || '',
+        fund_account_name: f.fund_account_name || '',
+        fund_password: f.fund_password || '',
+        // ═══ 证券账户费率（沪市） ═══
+        sh_stock_rate: parseFloat(f.sh_stock_rate) || 0,
+        sh_stock_min: parseFloat(f.sh_stock_min) || 0,
+        sh_etf_rate: parseFloat(f.sh_etf_rate) || 0,
+        sh_etf_min: parseFloat(f.sh_etf_min) || 0,
+        sh_lof_rate: parseFloat(f.sh_lof_rate) || 0,
+        sh_lof_min: parseFloat(f.sh_lof_min) || 0,
+        // ═══ 证券账户费率（深市） ═══
+        sz_stock_rate: parseFloat(f.sz_stock_rate) || 0,
+        sz_stock_min: parseFloat(f.sz_stock_min) || 0,
+        sz_etf_rate: parseFloat(f.sz_etf_rate) || 0,
+        sz_etf_min: parseFloat(f.sz_etf_min) || 0,
+        sz_lof_rate: parseFloat(f.sz_lof_rate) || 0,
+        sz_lof_min: parseFloat(f.sz_lof_min) || 0,
+        // ═══ 其他费用 ═══
+        transfer_fee_rate: parseFloat(f.transfer_fee_rate) || 0,
+        stamp_duty_rate: parseFloat(f.stamp_duty_rate) || 0,
+        // ═══ 基金平台费率 ═══
+        subscription_fee_rate: parseFloat(f.subscription_fee_rate) || 0,
+        subscription_fee_min: parseFloat(f.subscription_fee_min) || 0,
+        redemption_fee_rate: parseFloat(f.redemption_fee_rate) || 0,
+        redemption_fee_min: parseFloat(f.redemption_fee_min) || 0,
+        management_fee_rate: parseFloat(f.management_fee_rate) || 0,
+        custodian_fee_rate: parseFloat(f.custodian_fee_rate) || 0,
+        advisory_fee_rate: parseFloat(f.advisory_fee_rate) || 0,
         updated_at: db.serverDate(),
       };
 

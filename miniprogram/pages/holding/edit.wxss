@@ -73,3 +73,32 @@
   border-radius: 8rpx;
   flex-shrink: 0;
 }
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 12rpx;
+  color: var(--text-primary);
+}
+
+.fee-desc {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+  margin-bottom: 20rpx;
+  line-height: 1.5;
+}
+
+.fee-row {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+}
+
+.fee-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.fee-input {
+  width: 100%;
+}

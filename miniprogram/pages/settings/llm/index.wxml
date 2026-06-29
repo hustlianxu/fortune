@@ -7,7 +7,7 @@
 
   <view class="card" wx:for="{{providers}}" wx:key="key">
     <view class="provider-header">
-      <image class="provider-icon" src="../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
+      <image class="provider-icon" src="../../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
       <text class="provider-name">{{item.name}}</text>
       <switch
         checked="{{item.enabled}}"

@@ -63,7 +63,17 @@
   border: 2rpx solid var(--color-up);
 }
 
-/* 最近交易列表 */
+/* ═══════ Chart ═══════ */
+.chart-wrap {
+  width: 100%;
+  height: 320rpx;
+}
+.cost-chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* ═══════ 最近交易列表 ═══════ */
 .recent-txn {
   display: flex;
   justify-content: space-between;
@@ -73,6 +83,31 @@
 }
 .recent-txn:last-child { border-bottom: none; }
 .recent-txn-left { display: flex; align-items: center; }
+.recent-txn-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.recent-txn-sync-indicator {
+  font-size: 20rpx;
+  padding: 2rpx 6rpx;
+  border-radius: 4rpx;
+  line-height: 1.3;
+}
+.recent-txn-sync-indicator.synced { color: var(--color-down, #52c41a); }
+.recent-txn-sync-indicator.pending { color: var(--color-up, #ff4d4f); }
+
+.txn-build-badge {
+  font-size: 18rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  background: var(--txn-buy-soft, #e6f7e6);
+  color: var(--txn-buy, #389e0d);
+  border: 1rpx solid var(--txn-buy, #389e0d);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
 .recent-txn-badge {
   display: inline-block;
   padding: 4rpx 12rpx;

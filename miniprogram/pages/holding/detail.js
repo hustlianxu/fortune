@@ -1,8 +1,9 @@
 /**
  * 持仓详情页面
  * - 展示持仓盈亏/份额/成本
- * - 「记一笔买卖」入口：跳转交易编辑页并预填，记账后自动反算持仓
- * - 展示该持仓的最近交易
+ * - 「记一笔买卖」入口：跳转交易编辑页并预填
+ * - 展示该持仓的所有交易，可编辑/删除/长按操作
+ * - 累计投入折线图
  */
 const { formatMoney, formatDate, formatQuantity, formatPercent, getPriceColor } = require('../../utils/format');
 const { PRODUCT_TYPES } = require('../../utils/constants');
@@ -14,8 +15,9 @@ Page({
     holding: {},
     holdingId: '',
     priceColor: 'price-flat',
-    recentTransactions: [],
+    transactions: [],         // 该持仓的全部交易（按日期正序）
     loadingTxns: false,
+    chartRendered: false,
   },
 
   onLoad(options) {
@@ -25,30 +27,47 @@ Page({
   },
 
   onShow() {
-    // 每次显示都刷新（从交易编辑页返回时能反映最新持仓与流水）
     if (this.data.holdingId) {
-      this.loadHolding(this.data.holdingId);
-      this.loadRecentTransactions();
+      this.loadAll();
     }
   },
 
-  async loadHolding(id) {
+  /** 按顺序加载持仓 → 交易 → 画图 */
+  async loadAll() {
+    await this.loadHolding();
+    await this.loadAllTransactions();
+    this.drawChart();
+  },
+
+  async loadHolding() {
     try {
-      const res = await db.collection('holdings').doc(id).get();
+      const res = await db.collection('holdings').doc(this.data.holdingId).get();
       const holding = res.data || {};
+      // 实时重算盈亏，避免行情刷新/编辑持仓后仍使用旧快照导致与同花顺偏差
+      // 口径：盈亏 = 当前市值 - 持仓成本；持仓成本优先用 cost_value，缺失时回退 shares × cost_price
+      const shares = Number(holding.shares) || 0;
+      const currentPrice = Number(holding.current_price) || 0;
+      const costValue = Number(holding.cost_value) || (shares * Number(holding.cost_price || 0));
+      const marketValue = shares * currentPrice;
+      const pnl = marketValue - costValue;
+      const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
+      const recomputed = Object.assign({}, holding, {
+        market_value: marketValue,
+        cost_value: costValue,
+        pnl,
+        pnl_percent: pnlPercent,
+      });
       this.setData({
-        holding,
-        priceColor: getPriceColor(holding.pnl),
+        holding: recomputed,
+        priceColor: getPriceColor(pnl),
       });
     } catch (err) {
       console.error('[Holding Detail] load error:', err);
     }
   },
 
-  /**
-   * 拉取该持仓的最近交易（按 account_id + product_code）
-   */
-  async loadRecentTransactions() {
+  /** 加载该持仓的全部交易（按日期正序，用于图表和列表） */
+  async loadAllTransactions() {
     const { holding } = this.data;
     if (!holding.account_id || !holding.product_code) return;
     this.setData({ loadingTxns: true });
@@ -58,12 +77,11 @@ Page({
           account_id: holding.account_id,
           product_code: holding.product_code,
         })
-        .orderBy('trade_date', 'desc')
-        .orderBy('created_at', 'desc')
-        .limit(10)
+        .orderBy('trade_date', 'asc')
+        .orderBy('created_at', 'asc')
         .get();
       this.setData({
-        recentTransactions: res.data || [],
+        transactions: res.data || [],
         loadingTxns: false,
       });
     } catch (err) {
@@ -73,8 +91,250 @@ Page({
   },
 
   /**
-   * 记一笔买卖：跳转交易编辑页，预填账户/产品/名称
+   * 绘制累计投入折线图
    */
+  drawChart() {
+    const txns = this.data.transactions;
+    if (txns.length < 2) {
+      this.setData({ chartRendered: false });
+      return;
+    }
+
+    const query = wx.createSelectorQuery();
+    query.select('#costChart').fields({ node: true, size: true }).exec((res) => {
+      if (!res || !res[0]) return;
+      const canvas = res[0].node;
+      const ctx = canvas.getContext('2d');
+      const dpr = wx.getSystemInfoSync().pixelRatio;
+      const width = res[0].width;
+      const height = res[0].height;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+
+      // 计算累计数据
+      const points = [];
+      let cumShares = 0;
+      let cumCost = 0;
+      for (const t of txns) {
+        const amt = Number(t.amount) || 0;
+        const shr = Number(t.shares) || 0;
+        if (t.type === 'buy') {
+          cumShares += shr;
+          cumCost += amt;
+        } else if (t.type === 'sell') {
+          cumShares = Math.max(0, cumShares - shr);
+          // cost doesn't decrease on sell in weighted avg method,
+          // but for chart purposes we reduce proportionally
+        }
+        points.push({
+          date: (t.trade_date || '').slice(5), // MM-DD
+          cost: cumCost,
+          shares: cumShares,
+        });
+      }
+
+      if (points.length < 2) {
+        this.setData({ chartRendered: false });
+        return;
+      }
+
+      const pad = { top: 20, right: 20, bottom: 36, left: 60 };
+      const chartW = width - pad.left - pad.right;
+      const chartH = height - pad.top - pad.bottom;
+
+      const maxVal = Math.max(...points.map(p => p.cost), 1) * 1.15;
+      const minDate = 0;
+      const maxDate = points.length - 1;
+
+      const getX = (i) => pad.left + (i / maxDate) * chartW;
+      const getY = (v) => pad.top + chartH - (v / maxVal) * chartH;
+
+      // 清空
+      ctx.clearRect(0, 0, width, height);
+
+      // 网格线
+      ctx.strokeStyle = '#f0f0f0';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (chartH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(width - pad.right, y);
+        ctx.stroke();
+        // Y 轴标签
+        const val = maxVal - (maxVal / 4) * i;
+        ctx.fillStyle = '#999';
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('¥' + (val >= 10000 ? (val / 10000).toFixed(1) + '万' : val.toFixed(0)), pad.left - 8, y + 6);
+      }
+
+      // X 轴日期标签（仅首尾和中间）
+      ctx.fillStyle = '#999';
+      ctx.font = '18px sans-serif';
+      ctx.textAlign = 'center';
+      [0, Math.floor(points.length / 2), points.length - 1].forEach(i => {
+        if (i < points.length) {
+          ctx.fillText(points[i].date, getX(i), height - pad.bottom + 24);
+        }
+      });
+
+      // 累计成本线
+      ctx.strokeStyle = '#6c63ff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = getX(i);
+        const y = getY(p.cost);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // 成本线下渐变填充
+      const lastCost = points[points.length - 1].cost;
+      const gradient = ctx.createLinearGradient(0, getY(lastCost), 0, pad.top + chartH);
+      gradient.addColorStop(0, 'rgba(108, 99, 255, 0.15)');
+      gradient.addColorStop(1, 'rgba(108, 99, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(getX(0), pad.top + chartH);
+      points.forEach((p, i) => {
+        ctx.lineTo(getX(i), getY(p.cost));
+      });
+      ctx.lineTo(getX(points.length - 1), pad.top + chartH);
+      ctx.closePath();
+      ctx.fill();
+
+      // 数据点圆点
+      ctx.fillStyle = '#6c63ff';
+      points.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(getX(i), getY(p.cost), 3, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+
+      this.setData({ chartRendered: true });
+    });
+  },
+
+  /** 长按交易 → 操作菜单 */
+  onLongPressTxn(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    wx.showActionSheet({
+      itemList: ['编辑', '删除'],
+      success: (res) => {
+        if (res.tapIndex === 0) {
+          this.onEditTxn(e);
+        } else if (res.tapIndex === 1) {
+          this.onDeleteTxn(e);
+        }
+      },
+    });
+  },
+
+  /** 编辑交易 */
+  onEditTxn(e) {
+    const id = e.currentTarget.dataset.id;
+    if (id) {
+      wx.navigateTo({ url: `/pages/transactions/edit?id=${id}` });
+    }
+  },
+
+  /** 删除交易 */
+  onDeleteTxn(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    wx.showModal({
+      title: '删除交易',
+      content: '确定要删除这条交易记录吗？删除后对应持仓将自动修正。',
+      success: async (res) => {
+        if (!res.confirm) return;
+        wx.showLoading({ title: '删除中...', mask: true });
+        try {
+          const txnRes = await db.collection('transactions').doc(id).get();
+          const txn = txnRes.data;
+          await db.collection('transactions').doc(id).remove();
+          if (txn && (txn.type === 'buy' || txn.type === 'sell')) {
+            await this.undoHolding(txn);
+          }
+          wx.hideLoading();
+          wx.showToast({ title: '已删除，持仓已修正', icon: 'success' });
+          this.loadAll();
+        } catch (err) {
+          wx.hideLoading();
+          wx.showToast({ title: '删除失败', icon: 'none' });
+        }
+      },
+    });
+  },
+
+  /** 删除交易后修正对应持仓 */
+  async undoHolding(txn) {
+    try {
+      const holdingRes = await db.collection('holdings')
+        .where({ account_id: txn.account_id, product_code: txn.product_code })
+        .limit(1).get();
+      const holding = holdingRes.data[0];
+      if (!holding) return;
+
+      const shares = Number(txn.shares) || 0;
+      const price = Number(txn.price) || 0;
+      const fee = Number(txn.fee) || 0;   // 与 apply_transaction 对齐：买入手续费需一并回退
+      const curShares = Number(holding.shares) || 0;
+      const curPrice = Number(holding.current_price) || 0;
+
+      if (txn.type === 'buy') {
+        const newShares = Math.max(0, curShares - shares);
+        if (newShares <= 0) {
+          await db.collection('holdings').doc(holding._id).update({
+            data: { shares: 0, is_cleared: true, updated_at: db.serverDate() },
+          });
+        } else {
+          const oldCostValue = Number(holding.cost_value) || 0;
+          // 买入成本含手续费，回退时也按 buyCost = shares*price + fee 扣减
+          const buyCost = shares * price + fee;
+          const newCostValue = Math.max(0, oldCostValue - buyCost);
+          const newCostPrice = newCostValue / newShares;
+          const newMarketValue = newShares * curPrice;
+          const pnl = newMarketValue - newCostValue;
+          await db.collection('holdings').doc(holding._id).update({
+            data: {
+              shares: newShares,
+              cost_price: Number(newCostPrice.toFixed(4)),
+              cost_value: Number(newCostValue.toFixed(2)),
+              market_value: Number(newMarketValue.toFixed(2)),
+              pnl: Number(pnl.toFixed(2)),
+              pnl_percent: newCostValue > 0 ? Number(((pnl / newCostValue) * 100).toFixed(2)) : 0,
+              is_cleared: false,
+              updated_at: db.serverDate(),
+            },
+          });
+        }
+      } else if (txn.type === 'sell') {
+        const newShares = curShares + shares;
+        const costPrice = Number(holding.cost_price) || 0;
+        const newCostValue = newShares * costPrice;
+        const newMarketValue = newShares * curPrice;
+        const pnl = newMarketValue - newCostValue;
+        await db.collection('holdings').doc(holding._id).update({
+          data: {
+            shares: newShares,
+            is_cleared: false,
+            cost_value: Number(newCostValue.toFixed(2)),
+            market_value: Number(newMarketValue.toFixed(2)),
+            pnl: Number(pnl.toFixed(2)),
+            pnl_percent: newCostValue > 0 ? Number(((pnl / newCostValue) * 100).toFixed(2)) : 0,
+            updated_at: db.serverDate(),
+          },
+        });
+      }
+    } catch (err) {
+      console.error('[undoHolding] error:', err);
+    }
+  },
+
   onRecordTrade() {
     const h = this.data.holding;
     const params = [
@@ -83,6 +343,7 @@ Page({
       `product_name=${encodeURIComponent(h.product_name || '')}`,
       `product_type=${encodeURIComponent(h.product_type || '')}`,
       `exchange=${encodeURIComponent(h.exchange || '')}`,
+      `current_shares=${encodeURIComponent(String(h.shares || '0'))}`,
       `from=holding`,
     ].join('&');
     wx.navigateTo({

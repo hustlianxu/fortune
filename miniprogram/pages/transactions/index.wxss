@@ -91,6 +91,117 @@
 .empty-state { align-items: center; }
 .empty-hint { font-size: 24rpx; color: var(--text-tertiary); margin-top: var(--space-sm); }
 
+/* ═══════ 同步状态指示 ═══════ */
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  margin-right: 12rpx;
+  flex-shrink: 0;
+}
+.sync-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  display: block;
+}
+.sync-dot.synced { background: var(--color-down, #52c41a); }
+.sync-dot.pending { background: var(--color-up, #ff4d4f); animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ═══════ 同步按钮 ═══════ */
+.txn-action-sync {
+  font-size: 22rpx;
+  color: var(--primary-color);
+  padding: 4rpx 12rpx;
+  margin-right: 8rpx;
+}
+.txn-action-sync:active { opacity: 0.6; }
+
+/* ═══════ 批量同步条 ═══════ */
+.sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--primary-soft, #f0f0ff);
+  border: 2rpx solid var(--primary-color, #6c63ff);
+  border-radius: var(--radius-sm);
+  padding: 16rpx 20rpx;
+  margin-bottom: 16rpx;
+}
+.sync-bar-text {
+  font-size: 24rpx;
+  color: var(--primary-color, #6c63ff);
+  flex: 1;
+}
+.sync-bar-btn {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  padding: 8rpx 20rpx;
+  background: var(--primary-color, #6c63ff);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+  min-height: auto;
+  margin: 0;
+}
+.sync-bar-btn[disabled] { opacity: 0.6; }
+
+/* ═══════ 左滑操作 ═══════ */
+.txn-swipe-wrap {
+  position: relative;
+  overflow: hidden;
+}
+.txn-item {
+  transition: transform 0.2s ease;
+  position: relative;
+  z-index: 2;
+  background: var(--bg-card);
+}
+.txn-item.swiped {
+  transform: translateX(-160rpx);
+}
+
+.swipe-actions {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  z-index: 1;
+}
+.swipe-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80rpx;
+  font-size: 24rpx;
+  color: #fff;
+  font-weight: 500;
+}
+.swipe-edit { background: var(--primary-color, #6c63ff); }
+.swipe-delete { background: var(--color-up, #ff4d4f); }
+
+/* ═══════ 建仓标签 ═══════ */
+.txn-product-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.txn-build-badge {
+  font-size: 18rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  background: var(--txn-buy-soft, #e6f7e6);
+  color: var(--txn-buy, #389e0d);
+  border: 1rpx solid var(--txn-buy, #389e0d);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
 /* 浮动添加按钮 */
 .fab {
   position: fixed;

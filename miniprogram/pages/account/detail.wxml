@@ -21,19 +21,62 @@
     </view>
 
     <view class="section-title">持仓列表 ({{account.holdingCount}})</view>
-    <view class="holding-item" wx:for="{{account.holdings}}" wx:for-item="h" wx:key="_id"
-          bindtap="onHoldingTap" data-holding="{{h}}">
-      <view class="holding-top">
-        <text class="h-name">{{h.product_name}}</text>
-        <text class="h-pnl {{fmt.pnlClass(h.pnl)}}">
-          {{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}
+
+    <!-- 按策略分组 -->
+    <block wx:for="{{strategyGroups}}" wx:key="name">
+      <view class="strategy-group-header" bindtap="onToggleGroup" data-name="{{item.name}}">
+        <text class="sg-toggle">{{expandedGroups[item.name] ? '▼' : '▶'}}</text>
+        <text class="sg-name">{{item.name}}</text>
+        <text class="sg-pnl {{fmt.pnlClass(item.pnl)}}">
+          {{fmt.pnlSign(item.pnl)}}{{fmt.formatMoney(item.pnl)}}
         </text>
+        <text class="sg-count">{{item.holdings.length}} 只</text>
       </view>
-      <view class="holding-bottom">
-        <text>{{h.product_code}}</text>
-        <text>现价: {{fmt.formatMoney(h.current_price)}}</text>
-        <text>份额: {{fmt.formatQuantity(h.shares)}}</text>
-        <text>市值: {{fmt.formatMoney(h.market_value)}}</text>
+      <view wx:if="{{expandedGroups[item.name]}}">
+        <view class="holding-item" wx:for="{{item.holdings}}" wx:for-item="h" wx:key="_id"
+              bindtap="onHoldingTap" data-holding="{{h}}">
+          <view class="holding-top">
+            <text class="h-name">{{h.product_name}}</text>
+            <text class="h-pnl {{fmt.pnlClass(h.pnl)}}">{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
+          </view>
+          <view class="holding-bottom">
+            <text>{{h.product_code}}</text>
+            <text>现价: {{fmt.formatMoney(h.current_price)}}</text>
+            <text>份额: {{fmt.formatQuantity(h.shares)}}</text>
+            <text>市值: {{fmt.formatMoney(h.market_value)}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <!-- 无策略标签的持仓 -->
+    <view class="strategy-group-header" wx:if="{{unassignedHoldings.length > 0}}"
+          bindtap="onToggleGroup" data-name="__other__">
+      <text class="sg-toggle">{{expandedGroups['__other__'] ? '▼' : '▶'}}</text>
+      <text class="sg-name">其他持仓</text>
+      <text class="sg-count">{{unassignedHoldings.length}} 只</text>
+    </view>
+    <view wx:if="{{expandedGroups['__other__'] && unassignedHoldings.length > 0}}">
+      <view class="holding-item" wx:for="{{unassignedHoldings}}" wx:for-item="h" wx:key="_id"
+            bindtap="onHoldingTap" data-holding="{{h}}">
+        <view class="holding-top">
+          <text class="h-name">{{h.product_name}}</text>
+          <text class="h-pnl {{fmt.pnlClass(h.pnl)}}">{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
+        </view>
+        <view class="holding-bottom">
+          <text>{{h.product_code}}</text>
+          <text>现价: {{fmt.formatMoney(h.current_price)}}</text>
+          <text>份额: {{fmt.formatQuantity(h.shares)}}</text>
+          <text>市值: {{fmt.formatMoney(h.market_value)}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 累计投入趋势图 -->
+    <view class="card" wx:if="{{recentTxns.length >= 2}}" style="margin-bottom: 20rpx;">
+      <view class="section-title">累计净投入趋势</view>
+      <view class="chart-wrap">
+        <canvas type="2d" id="accountChart" class="cost-chart"></canvas>
       </view>
     </view>
 

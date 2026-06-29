@@ -47,31 +47,62 @@
     </picker>
   </view>
 
+  <!-- 批量同步条 -->
+  <view class="sync-bar" wx:if="{{unappliedCount > 0}}">
+    <text class="sync-bar-text">📤 {{unappliedCount}} 条买卖交易未同步到持仓</text>
+    <button class="sync-bar-btn" bindtap="syncAll" disabled="{{syncing}}">{{syncing ? '同步中...' : '批量同步'}}</button>
+  </view>
+
   <!-- 列表（按日期分组） -->
   <view class="card txn-group" wx:for="{{transactions}}" wx:key="date" wx:for-item="group">
     <view class="group-date">{{group.date}}</view>
     <view
-      class="txn-item"
+      class="txn-swipe-wrap"
       wx:for="{{group.items}}"
       wx:for-item="t"
       wx:key="_id"
-      bindtap="onEditTransaction"
       data-id="{{t._id}}"
+      bindtouchstart="onTouchStart"
+      bindtouchend="onTouchEnd"
     >
-      <view class="txn-left">
-        <text class="txn-type-badge {{c.transactionTypeClass(t.type)}}">{{c.transactionTypeName(t.type)}}</text>
-        <view class="txn-info">
-          <text class="txn-product">{{t.product_name || t.product_code || '资金转账'}}</text>
-          <text class="txn-meta" wx:if="{{t.product_code}}">{{t.product_code}}</text>
+      <!-- 主内容区 -->
+      <view
+        class="txn-item {{swipedItemId === t._id ? 'swiped' : ''}}"
+        bindtap="onEditTransaction"
+        bindlongpress="onLongPress"
+        data-id="{{t._id}}"
+      >
+        <!-- 同步状态指示 -->
+        <view class="sync-indicator" wx:if="{{t.type === 'buy' || t.type === 'sell'}}">
+          <text class="sync-dot {{t.applied_holding ? 'synced' : 'pending'}}"></text>
+        </view>
+
+        <view class="txn-left">
+          <text class="txn-type-badge {{c.transactionTypeClass(t.type)}}">{{c.transactionTypeName(t.type)}}</text>
+          <view class="txn-info">
+            <view class="txn-product-row">
+              <text class="txn-product">{{t.product_name || t.product_code || '资金转账'}}</text>
+              <text class="txn-build-badge" wx:if="{{t.type === 'buy' && t.is_opening}}">建仓</text>
+            </view>
+            <text class="txn-meta" wx:if="{{t.product_code}}">{{t.product_code}}</text>
+          </view>
+        </view>
+        <view class="txn-right">
+          <text class="txn-amount {{c.transactionTypeClass(t.type)}}">
+            {{c.transactionSign(t.type)}}¥{{fmt.formatMoney(t.amount)}}
+          </text>
+          <view class="txn-actions">
+            <text class="txn-action-sync" wx:if="{{(t.type === 'buy' || t.type === 'sell') && !t.applied_holding}}"
+                  catchtap="syncTransaction" data-id="{{t._id}}">同步</text>
+            <text class="txn-action-del" catchtap="onDeleteTransaction" data-id="{{t._id}}">删除</text>
+          </view>
         </view>
       </view>
-      <view class="txn-right">
-        <text class="txn-amount {{c.transactionTypeClass(t.type)}}">
-          {{c.transactionSign(t.type)}}¥{{fmt.formatMoney(t.amount)}}
-        </text>
-        <view class="txn-actions">
-          <text class="txn-action-del" catchtap="onDeleteTransaction" data-id="{{t._id}}">删除</text>
-        </view>
+
+      <!-- 左滑露出的操作按钮 -->
+      <view class="swipe-actions" wx:if="{{swipedItemId === t._id}}">
+        <view class="swipe-btn swipe-edit" catchtap="onSwipeEdit" data-id="{{t._id}}">编辑</view>
+        <view class="swipe-btn swipe-delete" catchtap="onSwipeDelete" data-id="{{t._id}}">删除</view>
       </view>
     </view>
   </view>

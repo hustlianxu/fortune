@@ -35,6 +35,16 @@
       </view>
       <text class="menu-arrow">›</text>
     </view>
+    <view class="menu-item" bindtap="onGoToVoiceImport">
+      <view class="menu-left">
+        <text class="menu-icon">🎙️</text>
+        <text>语音/文字录入交易</text>
+      </view>
+      <text class="menu-right">
+        <text class="menu-desc">AI 解析</text>
+        <text class="menu-arrow">›</text>
+      </text>
+    </view>
     <view class="menu-item" bindtap="onGoToExport">
       <view class="menu-left">
         <text class="menu-icon">📤</text>
@@ -102,7 +112,7 @@
     <view class="menu-item">
       <view class="menu-left">
         <text class="menu-icon">📖</text>
-        <text>版本 0.2.0</text>
+        <text>版本 0.2.1</text>
       </view>
     </view>
     <view class="menu-item" bindtap="onShowPrivacy">

@@ -6,39 +6,75 @@
     <view class="page-title">📋 持仓列表</view>
   </view>
 
-  <!-- 按账户分组 -->
-  <view class="card" wx:for="{{accountList}}" wx:key="_id">
-    <view class="acc-header" bindtap="onToggleAccount" data-id="{{item._id}}">
-      <text class="acc-name">{{item.name}}</text>
-      <text class="acc-value">¥{{fmt.formatMoney(item.total_value)}}</text>
-      <text class="toggle-icon">{{item.expanded ? '▼' : '▶'}}</text>
-    </view>
+  <!-- ═══════ 策略汇总卡片 ═══════ -->
+  <view class="strategy-section" wx:if="{{allSummary.holdingCount > 0}}">
+    <scroll-view class="strategy-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view
+        class="strategy-card {{selectedStrategy === '' ? 'active' : ''}}"
+        bindtap="onStrategyFilter" data-name=""
+      >
+        <text class="strategy-name">📊 全部</text>
+        <text class="strategy-value">¥{{fmt.formatMoney(allSummary.marketValue)}}</text>
+        <view class="strategy-pnl {{fmt.pnlClass(allSummary.pnl)}}">
+          <text>{{fmt.pnlSign(allSummary.pnl)}}{{fmt.formatMoney(allSummary.pnl)}}</text>
+          <text class="strategy-pnl-pct">({{fmt.formatPercent(allSummary.pnlPercent)}})</text>
+        </view>
+        <text class="strategy-count">{{allSummary.holdingCount}} 只</text>
+      </view>
+      <view
+        class="strategy-card {{selectedStrategy === item.name ? 'active' : ''}}"
+        wx:for="{{strategyList}}" wx:key="name"
+        bindtap="onStrategyFilter" data-name="{{item.name}}"
+      >
+        <text class="strategy-name">{{item.name}}</text>
+        <text class="strategy-value">¥{{fmt.formatMoney(item.marketValue)}}</text>
+        <view class="strategy-pnl {{fmt.pnlClass(item.pnl)}}">
+          <text>{{fmt.pnlSign(item.pnl)}}{{fmt.formatMoney(item.pnl)}}</text>
+          <text class="strategy-pnl-pct">({{fmt.formatPercent(item.pnlPercent)}})</text>
+        </view>
+        <text class="strategy-count">{{item.holdingCount}} 只</text>
+      </view>
+    </scroll-view>
+  </view>
 
-    <view wx:if="{{item.expanded}}">
-      <view class="holding-item" wx:for="{{item.holdings}}" wx:for-item="h" wx:key="_id"
-            bindtap="onHoldingTap" data-holding="{{h}}">
-        <view class="holding-header">
-          <text class="holding-name">{{h.product_name}}</text>
-          <view class="holding-pnl {{fmt.pnlClass(h.pnl)}}">
-            <text>{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
+  <!-- ═══════ 筛选后的账户列表 ═══════ -->
+  <block wx:for="{{accountList}}" wx:key="_id">
+    <view class="card" wx:if="{{item.visible}}">
+      <view class="acc-header" bindtap="onToggleAccount" data-id="{{item._id}}">
+        <text class="acc-name">{{item.name}}</text>
+        <text class="acc-value">¥{{fmt.formatMoney(item.total_value)}}</text>
+        <text class="toggle-icon">{{item.expanded ? '▼' : '▶'}}</text>
+      </view>
+
+      <view wx:if="{{item.expanded}}">
+        <view class="holding-item" wx:for="{{item.displayHoldings}}" wx:for-item="h" wx:key="_id"
+              bindtap="onHoldingTap" data-holding="{{h}}">
+          <view class="holding-header">
+            <view class="holding-name-row">
+              <text class="holding-name">{{h.product_name}}</text>
+              <text class="strategy-badge" wx:if="{{h.strategy}}">{{h.strategy}}</text>
+            </view>
+            <view class="holding-pnl {{fmt.pnlClass(h.pnl)}}">
+              <text>{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
+            </view>
+          </view>
+          <view class="holding-body">
+            <text class="holding-code">{{h.product_code}}</text>
+            <text class="tag {{c.tagClass(h.product_type)}}">{{c.productTypeName(h.product_type)}}</text>
+          </view>
+          <view class="holding-footer">
+            <text>当前: {{fmt.formatMoney(h.current_price)}}</text>
+            <text>成本: {{fmt.formatMoney(h.cost_price)}}</text>
+            <text>数量: {{fmt.formatQuantity(h.shares)}}</text>
           </view>
         </view>
-        <view class="holding-body">
-          <text class="holding-code">{{h.product_code}}</text>
-          <text class="tag {{c.tagClass(h.product_type)}}">{{c.productTypeName(h.product_type)}}</text>
-        </view>
-        <view class="holding-footer">
-          <text>当前: {{fmt.formatMoney(h.current_price)}}</text>
-          <text>成本: {{fmt.formatMoney(h.cost_price)}}</text>
-          <text>数量: {{fmt.formatQuantity(h.shares)}}</text>
-        </view>
+      </view>
+
+      <view class="acc-footer" wx:if="{{!item.expanded}}">
+        <text class="expand-hint">持仓 {{item.holdingCount}} 只</text>
       </view>
     </view>
-
-    <view class="acc-footer" wx:if="{{!item.expanded}}">
-      <text class="expand-hint">持仓 {{item.holdingCount}} 只</text>
-    </view>
-  </view>
+  </block>
 
   <view class="empty-state" wx:if="{{accountList.length === 0}}">
     <text>暂无持仓，请先在「我的」中导入或添加</text>

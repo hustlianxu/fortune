@@ -4,6 +4,7 @@
   "description": "Lookup stock/fund info by code or name",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "latest"
+    "wx-server-sdk": "latest",
+    "iconv-lite": "0.6.3"
   }
 }

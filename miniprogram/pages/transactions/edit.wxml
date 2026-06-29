@@ -29,12 +29,31 @@
 
     <view class="form-group">
       <text class="form-label">产品代码</text>
-      <input class="input-field" placeholder="买入/卖出时必填，如 600036" model:value="{{form.product_code}}" bindinput="onCodeInput" />
+      <input class="input-field" placeholder="买入/卖出时必填，如 600036" value="{{form.product_code}}" bindinput="onCodeInput" />
+      <view class="lookup-hint" wx:if="{{codeLookupHint}}">{{codeLookupHint}}</view>
+      <view class="suggestions" wx:if="{{codeSuggestions.length > 0}}">
+        <view
+          class="suggestion-item"
+          wx:for="{{codeSuggestions}}"
+          wx:key="code"
+          bindtap="onCodeSuggestionClick"
+          data-code="{{item.code}}"
+          data-name="{{item.name}}"
+          data-type="{{item.type}}"
+          data-exchange="{{item.exchange}}"
+        >
+          <view class="suggestion-left">
+            <text class="suggestion-name">{{item.name}}</text>
+            <text class="suggestion-code">{{item.code}}</text>
+          </view>
+          <text class="suggestion-type tag-{{item.type}}">{{c.productTypeName(item.type)}}</text>
+        </view>
+      </view>
     </view>
 
     <view class="form-group">
       <text class="form-label">产品名称</text>
-      <input class="input-field" placeholder="如：招商银行" model:value="{{form.product_name}}" bindinput="onNameInput" />
+      <input class="input-field" placeholder="如：招商银行" value="{{form.product_name}}" bindinput="onNameInput" />
       <view class="suggestions" wx:if="{{suggestions.length > 0}}">
         <view
           class="suggestion-item"
@@ -55,17 +74,22 @@
 
     <view class="form-group">
       <text class="form-label">份额 / 数量</text>
-      <input class="input-field" type="digit" placeholder="0" model:value="{{form.shares}}" bindinput="onSharesInput" />
+      <input class="input-field" type="digit" placeholder="0" value="{{form.shares}}" bindinput="onSharesInput" />
     </view>
 
     <view class="form-group">
       <text class="form-label">单价</text>
-      <input class="input-field" type="digit" placeholder="0.00" model:value="{{form.price}}" bindinput="onPriceInput" />
+      <input class="input-field" type="digit" placeholder="0.00" value="{{form.price}}" bindinput="onPriceInput" />
     </view>
 
     <view class="form-group">
       <text class="form-label">金额 *</text>
-      <input class="input-field" type="digit" placeholder="0.00（份额×单价自动计算）" model:value="{{form.amount}}" bindinput="onAmountInput" />
+      <input class="input-field" type="digit" placeholder="0.00（份额×单价自动计算）" value="{{form.amount}}" bindinput="onAmountInput" />
+    </view>
+
+    <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell'}}">
+      <text class="form-label">手续费</text>
+      <input class="input-field" type="digit" placeholder="0.00（选填，买入计入成本，与同花顺口径一致）" value="{{form.fee}}" bindinput="onFeeInput" />
     </view>
 
     <view class="form-group">
@@ -80,7 +104,7 @@
 
     <view class="form-group">
       <text class="form-label">备注</text>
-      <input class="input-field" placeholder="可选" model:value="{{form.note}}" />
+      <input class="input-field" placeholder="可选" value="{{form.note}}" bindinput="onNoteInput" />
     </view>
   </view>
 
