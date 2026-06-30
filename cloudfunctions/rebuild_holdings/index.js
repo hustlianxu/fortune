@@ -44,8 +44,13 @@ exports.main = async (event) => {
   const { account_id, product_code } = event || {};
 
   try {
-    // 1. 构建查询条件
+    // 当前调用者 openid（用于数据隔离 + 新建持仓归属）
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID || '';
+
+    // 1. 构建查询条件（按 openid 隔离，仅回放当前用户的交易）
     const where = {};
+    if (openid) where._openid = openid;
     if (account_id) where.account_id = account_id;
     if (product_code) where.product_code = product_code;
 
@@ -144,11 +149,13 @@ exports.main = async (event) => {
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓
-      const existRes = await db.collection('holdings').where({
+      // 查询现有持仓（按 openid 隔离）
+      const existWhere = {
         account_id: h.account_id,
         product_code: h.product_code,
-      }).limit(1).get();
+      };
+      if (openid) existWhere._openid = openid;
+      const existRes = await db.collection('holdings').where(existWhere).limit(1).get();
 
       const updateData = {
         shares: h.shares,
@@ -170,6 +177,7 @@ exports.main = async (event) => {
       } else {
         // 新建
         const newHolding = Object.assign({}, updateData, {
+          _openid: openid,
           account_id: h.account_id,
           product_code: h.product_code,
           product_type: h.product_type,

@@ -92,7 +92,10 @@
         <text class="trade-amount">¥{{item.amountText}}</text>
         <text class="trade-fee" wx:if="{{item.feeText}}">{{item.feeText}}</text>
       </view>
-      <text class="trade-remove" bindtap="onRemoveTrade" data-index="{{index}}">✕</text>
+      <view class="trade-actions">
+        <text class="trade-edit" bindtap="onEditTrade" data-index="{{index}}">✎</text>
+        <text class="trade-remove" bindtap="onRemoveTrade" data-index="{{index}}">✕</text>
+      </view>
     </view>
 
     <button class="btn-primary confirm-btn" bindtap="onConfirmImport" loading="{{importing}}" disabled="{{importing}}">
@@ -106,7 +109,57 @@
     <text class="tip-line">· 文字模式：直接粘贴语音转文字内容，每笔交易可换行或用顿号/分号分隔</text>
     <text class="tip-line">· JSON 模式：在外部 LLM 用 docs/06 提示词生成 JSON 后粘贴导入</text>
     <text class="tip-line">· 解析预览不会写入数据，确认无误后才正式导入</text>
+    <text class="tip-line">· 预览不准确？点 ✎ 可逐项修改后再导入</text>
     <text class="tip-line">· 导入后买卖交易会自动同步持仓（加权平均成本，含手续费）</text>
     <text class="tip-line link" bindtap="onGoToLLMSettings">· 未配置 LLM？点这里去配置 →</text>
+  </view>
+
+  <!-- 编辑预览记录弹层 -->
+  <view class="edit-mask" wx:if="{{editVisible}}" bindtap="onCancelEdit"></view>
+  <view class="edit-panel" wx:if="{{editVisible}}">
+    <view class="edit-header">
+      <text class="edit-title">编辑交易</text>
+      <text class="edit-close" bindtap="onCancelEdit">✕</text>
+    </view>
+    <view class="edit-body">
+      <view class="edit-row">
+        <text class="edit-label">类型</text>
+        <picker bindchange="onEditTypeChange" value="{{editTypeIndex}}" range="{{editTypeNames}}">
+          <view class="edit-picker"><text>{{editTypeNames[editTypeIndex]}}</text><text class="picker-arrow">▼</text></view>
+        </picker>
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">产品名称</text>
+        <input class="edit-input" value="{{editTrade.product_name}}" bindinput="onEditField" data-field="product_name" placeholder="如 招商银行" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">产品代码</text>
+        <input class="edit-input" value="{{editTrade.product_code}}" bindinput="onEditField" data-field="product_code" placeholder="如 600036" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">份额</text>
+        <input class="edit-input" type="digit" value="{{editTrade.shares}}" bindinput="onEditField" data-field="shares" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">单价</text>
+        <input class="edit-input" type="digit" value="{{editTrade.price}}" bindinput="onEditField" data-field="price" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">手续费</text>
+        <input class="edit-input" type="digit" value="{{editTrade.fee}}" bindinput="onEditField" data-field="fee" placeholder="留空按账户费率自动算" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">金额</text>
+        <input class="edit-input" type="digit" value="{{editTrade.amount}}" bindinput="onEditField" data-field="amount" placeholder="买卖=份额×单价" />
+      </view>
+      <view class="edit-row">
+        <text class="edit-label">日期</text>
+        <input class="edit-input" value="{{editTrade.trade_date}}" bindinput="onEditField" data-field="trade_date" placeholder="YYYY-MM-DD" />
+      </view>
+    </view>
+    <view class="edit-footer">
+      <button class="btn-secondary" bindtap="onCancelEdit">取消</button>
+      <button class="btn-primary" bindtap="onSaveEdit">保存</button>
+    </view>
   </view>
 </view>

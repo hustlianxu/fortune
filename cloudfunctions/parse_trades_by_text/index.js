@@ -308,7 +308,7 @@ function hasFeeRates(account) {
  * - 推断 product_type / exchange（用于费率计算和写入）
  * - fee 缺失（0）时按账户费率自动计算
  */
-async function postProcessTrades(trades, account_id, warnings) {
+async function postProcessTrades(trades, account_id, warnings, openid) {
   if (!trades || trades.length === 0) return trades;
 
   // 拉账户
@@ -320,12 +320,14 @@ async function postProcessTrades(trades, account_id, warnings) {
     console.warn('[postProcess] account not found:', account_id, e);
   }
 
-  // 拉账户下已有持仓，用于补全 product_type / exchange
+  // 拉账户下已有持仓，用于补全 product_type / exchange（按 openid 隔离）
   let holdingsMap = {};
   if (account) {
     try {
+      const holdingWhere = { account_id };
+      if (openid) holdingWhere._openid = openid;
       const { data: holdings } = await db.collection('holdings')
-        .where({ account_id }).get();
+        .where(holdingWhere).get();
       holdings.forEach(h => {
         const key = (h.product_code || '').toUpperCase();
         if (key) holdingsMap[key] = h;
@@ -372,7 +374,7 @@ async function postProcessTrades(trades, account_id, warnings) {
  */
 const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
 
-async function importTrade(trade, account_id, warnings) {
+async function importTrade(trade, account_id, warnings, openid) {
   const type = trade.type;
   // 影响持仓的交易必须有产品代码
   if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
@@ -383,13 +385,17 @@ async function importTrade(trade, account_id, warnings) {
   let isOpening = false;
   if (type === 'buy') {
     try {
+      const holdingWhere = { account_id, product_code: trade.product_code };
+      if (openid) holdingWhere._openid = openid;
       const existHolding = await db.collection('holdings')
-        .where({ account_id, product_code: trade.product_code })
+        .where(holdingWhere)
         .limit(1).get();
       const hasHolding = existHolding.data && existHolding.data.length > 0;
       if (!hasHolding) {
+        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy' };
+        if (openid) txnWhere._openid = openid;
         const existBuy = await db.collection('transactions')
-          .where({ account_id, product_code: trade.product_code, type: 'buy' })
+          .where(txnWhere)
           .limit(1).get();
         const hasBuy = existBuy.data && existBuy.data.length > 0;
         isOpening = !hasBuy;
@@ -400,6 +406,7 @@ async function importTrade(trade, account_id, warnings) {
   }
 
   const data = {
+    _openid: openid || '',
     account_id,
     type,
     product_code: trade.product_code || '',
@@ -459,6 +466,10 @@ exports.main = async (event) => {
     return { success: false, message: '缺少 account_id（请先选择目标账户）' };
   }
 
+  // 当前调用者 openid（用于数据隔离 + 写入归属）
+  const wxCtx = cloud.getWXContext();
+  const openid = wxCtx.OPENID || '';
+
   const warnings = [];
   let trades = [];
 
@@ -481,16 +492,14 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings);
+      trades = await postProcessTrades(trades, account_id, warnings, openid);
     } else {
       // text 模式：调 LLM 解析
       if (!text || !text.trim()) {
         return { success: false, message: '请输入要解析的文字', trades: [], warnings: [] };
       }
 
-      // 读取用户 LLM 配置（按 openid 隔离）
-      const wxCtx = cloud.getWXContext();
-      const openid = wxCtx.OPENID || '';
+      // 读取用户 LLM 配置（按 openid 隔离，openid 已在 main 顶部获取）
       const cfgQuery = openid ? { _openid: openid } : {};
       const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
       const userConfig = configs[0];
@@ -546,7 +555,7 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings);
+      trades = await postProcessTrades(trades, account_id, warnings, openid);
     }
 
     if (trades.length === 0) {
@@ -573,7 +582,7 @@ exports.main = async (event) => {
     let imported = 0;
     for (let i = 0; i < trades.length; i++) {
       try {
-        await importTrade(trades[i], account_id, warnings);
+        await importTrade(trades[i], account_id, warnings, openid);
         imported++;
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);

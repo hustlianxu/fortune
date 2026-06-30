@@ -19,6 +19,9 @@ const TYPE_LABELS = {
   interest: '利息',
 };
 
+const TYPE_KEYS = ['buy', 'sell', 'dividend', 'transfer_in', 'transfer_out', 'fee', 'interest'];
+const TYPE_NAME_LIST = TYPE_KEYS.map(k => TYPE_LABELS[k]);
+
 Page({
   data: {
     activeTab: 'text',     // 'text' | 'json'
@@ -33,6 +36,12 @@ Page({
     warnings: [],
     sampleText: '3月15号买入1000股招商银行，36块5，手续费5块\n4月20号卖出500股招商银行，38块2\n5月10号买入2000股上证50ETF，2.85\n6月1号招行分红500块',
     sampleJson: '[\n  {\n    "type": "buy",\n    "product_name": "招商银行",\n    "product_code": "600036",\n    "shares": 1000,\n    "price": 36.50,\n    "fee": 5,\n    "amount": 36500,\n    "trade_date": "2025-03-15",\n    "note": ""\n  }\n]',
+    // 编辑弹层
+    editVisible: false,
+    editIndex: -1,
+    editTrade: null,
+    editTypeIndex: 0,
+    editTypeNames: TYPE_NAME_LIST,
   },
 
   onLoad() {
@@ -171,6 +180,74 @@ Page({
     const list = this.data.parsedTrades.slice();
     list.splice(idx, 1);
     this.setData({ parsedTrades: list });
+  },
+
+  /** 打开编辑弹层 */
+  onEditTrade(e) {
+    const idx = e.currentTarget.dataset.index;
+    const trade = this.data.parsedTrades[idx];
+    if (!trade) return;
+    const typeIndex = TYPE_KEYS.indexOf(trade.type);
+    this.setData({
+      editVisible: true,
+      editIndex: idx,
+      editTrade: { ...trade },
+      editTypeIndex: typeIndex >= 0 ? typeIndex : 0,
+    });
+  },
+
+  onEditTypeChange(e) {
+    const typeIndex = parseInt(e.detail.value, 10);
+    this.setData({
+      editTypeIndex: typeIndex,
+      editTrade: { ...this.data.editTrade, type: TYPE_KEYS[typeIndex], typeLabel: TYPE_NAME_LIST[typeIndex] },
+    });
+  },
+
+  onEditField(e) {
+    const field = e.currentTarget.dataset.field;
+    this.setData({ [`editTrade.${field}`]: e.detail.value });
+  },
+
+  onCancelEdit() {
+    this.setData({ editVisible: false, editIndex: -1, editTrade: null });
+  },
+
+  /** 保存编辑：校验并回写到 parsedTrades，重算展示字段 */
+  onSaveEdit() {
+    const t = this.data.editTrade;
+    if (!t) return;
+    const idx = this.data.editIndex;
+    // 数值字段转换
+    const shares = Number(t.shares) || 0;
+    const price = Number(t.price) || 0;
+    const fee = Number(t.fee) || 0;
+    let amount = Number(t.amount);
+    if (isNaN(amount)) amount = 0;
+    // 买卖缺金额时按份额×单价补全
+    if ((t.type === 'buy' || t.type === 'sell') && amount === 0 && shares > 0 && price > 0) {
+      amount = shares * price;
+    }
+    const tradeDate = String(t.trade_date || '');
+    if (tradeDate && !/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
+      wx.showToast({ title: '日期格式应为 YYYY-MM-DD', icon: 'none' });
+      return;
+    }
+    const updated = {
+      ...t,
+      shares,
+      price,
+      fee,
+      amount: Number(amount.toFixed(2)),
+      trade_date: tradeDate,
+      typeLabel: TYPE_LABELS[t.type] || t.type,
+      amountText: amount.toFixed(2),
+      feeText: fee > 0 ? `（手续费 ¥${fee.toFixed(2)}）` : '',
+    };
+    const list = this.data.parsedTrades.slice();
+    list[idx] = updated;
+    this.setData({ parsedTrades: list, editVisible: false, editIndex: -1, editTrade: null });
+    wx.showToast({ title: '已保存', icon: 'success' });
   },
 
   /** 确认导入：用解析后的 trades 走 mode=json 写入 */

@@ -42,6 +42,10 @@ exports.main = async (event) => {
   }
 
   try {
+    // 当前调用者 openid（用于新建持仓归属 + 查询隔离）
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID || '';
+
     // 1. 读取交易
     const txnRes = await db.collection('transactions').doc(transaction_id).get();
     const txn = txnRes.data;
@@ -53,6 +57,9 @@ exports.main = async (event) => {
     if (txn.applied_holding) {
       return { success: true, message: '已应用过，跳过', skipped: true };
     }
+
+    // 归属人优先取交易记录上的 _openid，回退当前调用者
+    const ownerOpenid = txn._openid || openid;
 
     const type = txn.type;
     const fee = Number(txn.fee) || 0;
@@ -67,6 +74,7 @@ exports.main = async (event) => {
         return { success: true, message: '分红/利息缺账户或代码，仅记录', skipped: true };
       }
       const existRes = await db.collection('holdings').where({
+        _openid: ownerOpenid,
         account_id: txn.account_id,
         product_code: txn.product_code,
       }).limit(1).get();
@@ -116,8 +124,9 @@ exports.main = async (event) => {
       return { success: false, message: '交易份额无效' };
     }
 
-    // 4. 查询对应持仓（account_id + product_code）
+    // 4. 查询对应持仓（_openid + account_id + product_code）
     const existRes = await db.collection('holdings').where({
+      _openid: ownerOpenid,
       account_id: txn.account_id,
       product_code: txn.product_code,
     }).limit(1).get();
@@ -162,6 +171,7 @@ exports.main = async (event) => {
         const newCostPrice = shares > 0 ? buyCost / shares : price;
         const marketValue = Number((shares * price).toFixed(2));
         const newHolding = {
+          _openid: ownerOpenid,
           account_id: txn.account_id,
           product_code: txn.product_code,
           product_name: txn.product_name || txn.product_code,
