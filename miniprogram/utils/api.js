@@ -30,7 +30,7 @@ async function refreshPrices() {
 }
 
 /**
- * AI 持仓分析
+ * AI 持仓分析（单模型）
  * @param {string} type - 分析类型
  * @param {string} provider - 模型提供商
  */
@@ -38,6 +38,21 @@ async function analyzePortfolio(type, provider) {
   return callCloudFunction(CLOUD_FUNCTIONS.LLM_GATEWAY, {
     type,
     provider,
+  });
+}
+
+/**
+ * AI 持仓分析（多模型协作）
+ * 多个分析师各自独立分析，再由指定汇总模型综合各报告给出最终结论
+ * @param {string} type - 分析类型
+ * @param {string[]} analysts - 分析师 provider 数组
+ * @param {string} synthesizer - 汇总 provider（可选，默认取 analysts[0]）
+ */
+async function analyzePortfolioMulti(type, analysts, synthesizer) {
+  return callCloudFunction(CLOUD_FUNCTIONS.LLM_GATEWAY, {
+    type,
+    analysts,
+    synthesizer: synthesizer || (analysts[0] || ''),
   });
 }
 
@@ -288,6 +303,7 @@ module.exports = {
   callCloudFunction,
   refreshPrices,
   analyzePortfolio,
+  analyzePortfolioMulti,
   askAI,
   getHoldingsAnalysis,
   getAnalysisReports,

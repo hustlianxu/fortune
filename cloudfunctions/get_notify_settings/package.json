@@ -1,0 +1,9 @@
+{
+  "name": "get_notify_settings",
+  "version": "1.0.0",
+  "description": "Get current user notify settings from notify_settings collection",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

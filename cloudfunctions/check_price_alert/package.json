@@ -1,0 +1,9 @@
+{
+  "name": "check_price_alert",
+  "version": "1.0.0",
+  "description": "Check price alert threshold for all holdings and push subscribe message",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

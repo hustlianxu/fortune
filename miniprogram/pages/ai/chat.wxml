@@ -13,7 +13,7 @@
   </view>
 
   <view class="chat-input-area">
-    <input class="chat-input" placeholder="输入问题..." model:value="{{question}}" />
-    <button class="send-btn" bindtap="onSend" disabled="{{!question.trim()}}">发送</button>
+    <input class="chat-input" placeholder="输入问题..." model:value="{{question}}" bindinput="onInputChange" />
+    <button class="send-btn" bindtap="onSend" disabled="{{!canSend}}">发送</button>
   </view>
 </view>

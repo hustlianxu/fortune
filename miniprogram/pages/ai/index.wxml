@@ -7,17 +7,38 @@
     <text class="page-desc">基于大模型分析您的持仓健康状况</text>
   </view>
 
-  <!-- 模型选择 -->
+  <!-- 模型选择：多选分析师 + 汇总模型 -->
   <view class="card">
-    <view class="section-title">选择分析模型</view>
-    <picker bindchange="onProviderChange" value="{{providerIndex}}" range="{{providerNames}}">
-      <view class="picker-row">
-        <text class="picker-label">{{selectedProviderName || '请选择模型'}}</text>
-        <text class="picker-arrow">▼</text>
+    <view class="section-title">选择分析模型（可多选）</view>
+    <text class="section-hint">点击选择 1 个或多个已配置的模型并行分析；选多个时由汇总模型综合各报告</text>
+    <scroll-view scroll-x class="provider-chips" wx:if="{{configuredProviders.length > 0}}">
+      <view
+        wx:for="{{configuredProviders}}"
+        wx:key="key"
+        class="provider-chip {{analysts.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+        bindtap="onToggleAnalyst"
+        data-key="{{item.key}}"
+      >
+        <image class="chip-icon" src="../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
+        <text class="chip-name">{{item.name}}</text>
       </view>
-    </picker>
-    <view class="provider-status {{providerConfigured ? 'configured' : 'unconfigured'}}">
-      {{providerConfigured ? '✅ 已配置 API Key' : '⚠️ 未配置，请先在 我的 > AI 模型设置 中配置'}}
+    </scroll-view>
+    <view class="provider-status unconfigured" wx:else>
+      ⚠️ 未配置，请先在 我的 > AI 模型设置 中配置 API Key
+    </view>
+    <view class="provider-status configured" wx:if="{{configuredProviders.length > 0}}">
+      已选 {{analysts.length}} 个分析模型
+    </view>
+
+    <!-- 汇总模型：仅当选择 >1 个分析师时显示 -->
+    <view class="synth-row" wx:if="{{analysts.length > 1}}">
+      <text class="synth-label">汇总模型</text>
+      <picker bindchange="onSynthChange" value="{{synthIndex}}" range="{{synthNames}}">
+        <view class="picker-row">
+          <text class="picker-label">{{synthNames[synthIndex] || '请选择'}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
     </view>
   </view>
 
@@ -39,7 +60,7 @@
       </view>
       <view class="overview-item">
         <text class="overview-label">累计盈亏</text>
-        <text class="overview-value {{pnlColor}}">{{fmt.pnlSign(summary.totalPnL)}}{{fmt.formatMoney(summary.totalPnL)}}</text>
+        <text class="overview-value {{pnlColor}}">{{fmt.pnlSign(summary.totalAllPnL != null ? summary.totalAllPnL : summary.totalPnL)}}{{fmt.formatMoney(summary.totalAllPnL != null ? summary.totalAllPnL : summary.totalPnL)}}</text>
       </view>
     </view>
   </view>
@@ -74,7 +95,7 @@
   <!-- 分析结果 -->
   <view class="card" wx:if="{{result.show}}">
     <view class="result-header">
-      <text class="result-title">分析报告</text>
+      <text class="result-title">{{result.multiMode ? '综合分析报告' : '分析报告'}}</text>
       <text class="result-date">{{result.date}}</text>
     </view>
     <view class="result-risk" wx:if="{{result.riskLevel}}">
@@ -91,6 +112,24 @@
     </view>
     <view class="result-content" wx:if="{{result.content}}">
       <text class="result-text" user-select="{{true}}" decode="{{true}}">{{result.content}}</text>
+    </view>
+
+    <!-- 多模型协作：各分析师独立报告（可折叠） -->
+    <view class="sub-reports" wx:if="{{result.subReports && result.subReports.length > 0}}">
+      <view class="sub-reports-title" bindtap="onToggleSubReports">
+        <text>各分析师独立报告（{{result.subReports.length}} 份）</text>
+        <text class="sub-toggle">{{showSubReports ? '收起 ▲' : '展开 ▼'}}</text>
+      </view>
+      <view wx:if="{{showSubReports}}">
+        <view class="sub-report-item" wx:for="{{result.subReports}}" wx:for-item="sub" wx:key="provider">
+          <view class="sub-report-header">
+            <image class="chip-icon" src="../../images/providers/provider_{{sub.provider}}.png" mode="aspectFit"></image>
+            <text class="sub-report-provider">{{sub.provider}}</text>
+            <text class="sub-report-error" wx:if="{{sub.error}}">（失败：{{sub.error}}）</text>
+          </view>
+          <text class="sub-report-content" wx:if="{{sub.content}}" user-select="{{true}}" decode="{{true}}">{{sub.content}}</text>
+        </view>
+      </view>
     </view>
   </view>
 
@@ -120,8 +159,8 @@
     <view class="section-title">💬 智能问答</view>
     <text class="qa-desc">用自然语言问关于您持仓的任何问题</text>
     <view class="qa-input-area">
-      <input class="qa-input" placeholder="例如：我哪个产品亏最多？" model:value="{{qaQuestion}}" />
-      <button class="qa-send" bindtap="onAskQuestion" disabled="{{!qaQuestion.trim()}}">发送</button>
+      <input class="qa-input" placeholder="例如：我哪个产品亏最多？" model:value="{{qaQuestion}}" bindinput="onQaInputChange" />
+      <button class="qa-send" bindtap="onAskQuestion" disabled="{{!canAsk}}">发送</button>
     </view>
     <view class="quick-questions" wx:if="{{!qaAnswer}}">
       <view class="quick-q" bindtap="onQuickQuestion" data-q="我的持仓是否过于集中？">› 我的持仓是否过于集中？</view>

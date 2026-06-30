@@ -5,6 +5,11 @@ Page({
   data: {
     messages: [],
     question: '',
+    canSend: false,
+  },
+
+  onInputChange(e) {
+    this.setData({ canSend: (e.detail.value || '').trim().length > 0 });
   },
 
   async onSend() {
@@ -13,7 +18,7 @@ Page({
 
     // 添加用户消息
     const msgs = [...this.data.messages, { role: 'user', content: question }];
-    this.setData({ messages: msgs, question: '' });
+    this.setData({ messages: msgs, question: '', canSend: false });
 
     try {
       wx.showLoading({ title: '思考中...', mask: true });

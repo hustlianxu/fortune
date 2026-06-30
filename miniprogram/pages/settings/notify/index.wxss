@@ -17,6 +17,8 @@
 .form-label { font-size: 24rpx; color: var(--text-tertiary); display: block; margin-bottom: 8rpx; }
 .input-field {
   width: 100%;
+  height: 84rpx;
+  line-height: 1.5;
   padding: 20rpx 24rpx;
   background: var(--bg-input);
   border-radius: var(--radius-sm);

@@ -219,9 +219,13 @@ Page({
           wx.hideLoading();
           const res = result.result || {};
           if (res.success) {
+            let content = res.message || `成功导入 ${res.imported || 0} 笔`;
+            if (res.warnings && res.warnings.length > 0) {
+              content += '\n\n注意事项：\n' + res.warnings.slice(0, 5).map(w => '• ' + w).join('\n');
+            }
             wx.showModal({
               title: '导入完成',
-              content: res.message || `成功导入 ${res.imported || 0} 笔`,
+              content: content,
               showCancel: false,
               success: () => {
                 // 清空并返回

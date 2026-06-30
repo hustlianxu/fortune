@@ -1,13 +1,13 @@
 /* 语音/文字录入交易页面 */
 .page {
   padding: 24rpx;
-  background: var(--bg-page, #f5f5f5);
+  background: var(--bg-primary);
   min-height: 100vh;
   box-sizing: border-box;
 }
 
 .card {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: var(--radius-card, 16rpx);
   padding: 28rpx;
   margin-bottom: 20rpx;
@@ -18,14 +18,14 @@
   display: block;
   font-size: 36rpx;
   font-weight: 600;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
   margin-bottom: 12rpx;
 }
 
 .page-desc {
   display: block;
   font-size: 26rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -39,7 +39,7 @@
 .form-label {
   display: block;
   font-size: 26rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
   margin-bottom: 12rpx;
 }
 .picker-row {
@@ -50,10 +50,10 @@
   background: var(--bg-input, #f7f7f7);
   border-radius: var(--radius-sm, 10rpx);
   font-size: 28rpx;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
 }
 .picker-arrow {
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
   font-size: 24rpx;
 }
 
@@ -70,10 +70,10 @@
   text-align: center;
   padding: 24rpx 0;
   font-size: 28rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
 }
 .tab.active {
-  color: var(--color-primary, #6c63ff);
+  color: var(--primary-color);
   font-weight: 600;
   position: relative;
 }
@@ -85,7 +85,7 @@
   transform: translateX(-50%);
   width: 48rpx;
   height: 4rpx;
-  background: var(--color-primary, #6c63ff);
+  background: var(--primary-color);
   border-radius: 2rpx;
 }
 .tab-content {
@@ -94,7 +94,7 @@
 .tab-desc {
   display: block;
   font-size: 24rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 16rpx;
 }
@@ -105,7 +105,7 @@
   background: var(--bg-input, #f7f7f7);
   border-radius: var(--radius-sm, 10rpx);
   font-size: 28rpx;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
   line-height: 1.6;
   box-sizing: border-box;
 }
@@ -122,7 +122,7 @@
 }
 .link-btn {
   font-size: 26rpx;
-  color: var(--color-primary, #6c63ff);
+  color: var(--primary-color);
   padding: 8rpx 16rpx;
 }
 .link-btn.danger {
@@ -132,7 +132,7 @@
 /* 主按钮 */
 .btn-primary {
   margin-top: 24rpx;
-  background: var(--color-primary, #6c63ff);
+  background: var(--primary-color);
   color: #fff;
   border-radius: var(--radius-sm, 10rpx);
   font-size: 30rpx;
@@ -152,7 +152,7 @@
 .section-title {
   font-size: 30rpx;
   font-weight: 600;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
 }
 
 .warnings {
@@ -194,14 +194,14 @@
   padding: 4rpx 14rpx;
   border-radius: 6rpx;
   color: #fff;
-  background: var(--color-text-secondary, #8e8e93);
+  background: var(--text-secondary);
 }
 .tag-buy { background: var(--txn-buy, #e74c3c); }
 .tag-sell { background: var(--txn-sell, #27ae60); }
 .tag-dividend { background: var(--txn-income, #f39c12); }
 .tag-transfer_in { background: var(--txn-transfer, #3498db); }
 .tag-transfer_out { background: var(--txn-transfer, #7f8c8d); }
-.tag-fee { background: var(--color-text-secondary, #8e8e93); }
+.tag-fee { background: var(--text-secondary); }
 .tag-interest { background: var(--txn-income, #f39c12); }
 
 .trade-info {
@@ -211,34 +211,34 @@
 }
 .trade-name {
   font-size: 28rpx;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
   font-weight: 500;
 }
 .trade-date {
   font-size: 24rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
 }
 .trade-detail {
   display: flex;
   gap: 16rpx;
   align-items: center;
   font-size: 26rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
 }
 .trade-amount {
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
   font-weight: 600;
 }
 .trade-fee {
   font-size: 22rpx;
-  color: #8e8e93;
+  color: var(--text-tertiary);
 }
 .trade-remove {
   position: absolute;
   top: 20rpx;
   right: 0;
   font-size: 28rpx;
-  color: #bdc3c7;
+  color: var(--text-tertiary);
   padding: 8rpx 16rpx;
 }
 
@@ -248,22 +248,22 @@
 
 /* 提示 */
 .tip-card {
-  background: #fafafa;
+  background: var(--bg-input);
 }
 .tip-title {
   display: block;
   font-size: 26rpx;
   font-weight: 600;
-  color: var(--color-text, #1a1a1a);
+  color: var(--text-primary);
   margin-bottom: 12rpx;
 }
 .tip-line {
   display: block;
   font-size: 24rpx;
-  color: var(--color-text-secondary, #8e8e93);
+  color: var(--text-secondary);
   line-height: 1.7;
 }
 .tip-line.link {
-  color: var(--color-primary, #6c63ff);
+  color: var(--primary-color);
   margin-top: 8rpx;
 }

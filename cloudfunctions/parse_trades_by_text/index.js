@@ -221,10 +221,15 @@ function normalizeTrade(t, warnings) {
     warnings.push(`交易"${t.product_name || type}"日期格式异常：${tradeDate}，已用今天兜底`);
     tradeDate = new Date().toISOString().split('T')[0];
   }
+  // 买卖/分红/利息类交易需要产品代码才能匹配持仓，缺失时预警
+  const needsCode = ['buy', 'sell', 'dividend', 'interest'].indexOf(type) >= 0;
+  if (needsCode && !String(t.product_code || '').trim()) {
+    warnings.push(`「${t.product_name || type}」缺少产品代码，将无法匹配持仓（请在导入前补全代码）`);
+  }
   return {
     type,
     product_name: String(t.product_name || ''),
-    product_code: String(t.product_code || ''),
+    product_code: String(t.product_code || '').trim(),
     product_type: String(t.product_type || ''),
     exchange: String(t.exchange || ''),
     shares,
@@ -360,11 +365,43 @@ async function postProcessTrades(trades, account_id, warnings) {
 
 /**
  * 写入一笔交易并应用到持仓
+ * - buy/sell/dividend/interest 需产品代码，缺失则抛错（不写入，避免脏数据）
+ * - buy 计算 is_opening（首次建仓）
+ * - buy/sell/dividend/interest 调 apply_transaction 应用到持仓，失败仅预警（交易已记录，可重建修复）
+ * - transfer_in/transfer_out/fee 仅记录
  */
-async function importTrade(trade, account_id) {
+const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
+
+async function importTrade(trade, account_id, warnings) {
+  const type = trade.type;
+  // 影响持仓的交易必须有产品代码
+  if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
+    throw new Error(`「${trade.product_name || type}」缺少产品代码，无法导入`);
+  }
+
+  // 判断是否建仓（首次买入）：该账户+代码下既无持仓又无历史买入
+  let isOpening = false;
+  if (type === 'buy') {
+    try {
+      const existHolding = await db.collection('holdings')
+        .where({ account_id, product_code: trade.product_code })
+        .limit(1).get();
+      const hasHolding = existHolding.data && existHolding.data.length > 0;
+      if (!hasHolding) {
+        const existBuy = await db.collection('transactions')
+          .where({ account_id, product_code: trade.product_code, type: 'buy' })
+          .limit(1).get();
+        const hasBuy = existBuy.data && existBuy.data.length > 0;
+        isOpening = !hasBuy;
+      }
+    } catch (e) {
+      console.warn('[importTrade] is_opening check error:', e);
+    }
+  }
+
   const data = {
     account_id,
-    type: trade.type,
+    type,
     product_code: trade.product_code || '',
     product_name: trade.product_name || '',
     product_type: trade.product_type || '',
@@ -375,24 +412,30 @@ async function importTrade(trade, account_id) {
     fee: trade.fee,
     trade_date: trade.trade_date,
     note: trade.note || '',
+    is_opening: isOpening,
     applied_holding: false,
     created_at: db.serverDate(),
     updated_at: db.serverDate(),
   };
   const addRes = await db.collection('transactions').add({ data });
-  // 买卖类自动应用持仓
-  if (trade.type === 'buy' || trade.type === 'sell') {
+
+  if (HOLDING_AFFECTING.indexOf(type) >= 0) {
+    // 调 apply_transaction 应用到持仓（幂等）
     try {
-      await cloud.callFunction({
+      const res = await cloud.callFunction({
         name: 'apply_transaction',
         data: { transaction_id: addRes._id },
       });
+      const result = res && res.result;
+      if (!result || !result.success) {
+        const msg = (result && result.message) || '应用持仓失败';
+        warnings.push(`「${trade.product_name || trade.product_code}」已记录但未应用到持仓：${msg}（可在持仓详情页「重建」修复）`);
+      }
     } catch (e) {
-      // 应用失败不影响导入，用户可后续手动重建
-      console.warn('[importTrade] apply_transaction failed:', e);
+      warnings.push(`「${trade.product_name || trade.product_code}」已记录但应用到持仓异常：${e.message}（可在持仓详情页「重建」修复）`);
     }
   } else {
-    // 非买卖类直接标记已应用
+    // 转账/手续费类不影响持仓，直接标记已应用
     try {
       await db.collection('transactions').doc(addRes._id).update({
         data: { applied_holding: true, applied_at: db.serverDate() },
@@ -445,8 +488,11 @@ exports.main = async (event) => {
         return { success: false, message: '请输入要解析的文字', trades: [], warnings: [] };
       }
 
-      // 读取用户 LLM 配置
-      const { data: configs } = await db.collection('llm_configs').get();
+      // 读取用户 LLM 配置（按 openid 隔离）
+      const wxCtx = cloud.getWXContext();
+      const openid = wxCtx.OPENID || '';
+      const cfgQuery = openid ? { _openid: openid } : {};
+      const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
       const userConfig = configs[0];
       if (!userConfig || !userConfig.providers) {
         return { success: false, message: '请先在「我的 → AI 模型设置」中配置 LLM API Key', trades: [], warnings: [] };
@@ -527,7 +573,7 @@ exports.main = async (event) => {
     let imported = 0;
     for (let i = 0; i < trades.length; i++) {
       try {
-        await importTrade(trades[i], account_id);
+        await importTrade(trades[i], account_id, warnings);
         imported++;
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);

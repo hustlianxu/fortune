@@ -21,6 +21,12 @@ App({
 
     // 检查是否有缓存的行情数据
     this.checkDailyUpdate();
+
+    // 恢复已登录用户信息（仅用于展示，云端数据通过 OPENID 隔离）
+    try {
+      const userInfo = wx.getStorageSync('userInfo');
+      if (userInfo) this.globalData.userInfo = userInfo;
+    } catch (e) {}
   },
 
   globalData: {
@@ -40,6 +46,10 @@ App({
 
     // 默认模型配置
     defaultLLMProvider: 'deepseek',
+
+    // 当前登录用户信息 { avatarUrl, nickName }（由"我的"页登录写入）
+    // 云函数通过 cloud.getWXContext().OPENID 隔离数据，前端 userInfo 仅用于展示
+    userInfo: null,
   },
 
   /**

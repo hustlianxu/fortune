@@ -9,9 +9,12 @@ const db = cloud.database();
 exports.main = async (event) => {
   try {
     const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID || '';
+    // 按 openid 隔离，仅导出当前用户的数据（云函数为 admin 权限，需手动过滤）
+    const query = openid ? { _openid: openid } : {};
     const [accountsRes, holdingsRes] = await Promise.all([
-      db.collection('accounts').get(),
-      db.collection('holdings').get(),
+      db.collection('accounts').where(query).get(),
+      db.collection('holdings').where(query).get(),
     ]);
 
     const exportData = {

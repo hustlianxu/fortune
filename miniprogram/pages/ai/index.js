@@ -1,5 +1,7 @@
 /**
  * AI 持仓分析页面
+ * - 支持多 AI 协作：选中多个分析师独立分析，再由汇总模型综合
+ * - 单选时退化为单模型分析（向后兼容）
  */
 const api = require('../../utils/api');
 const { formatMoney, formatDate, getPriceColor } = require('../../utils/format');
@@ -11,10 +13,10 @@ Page({
     analyzing: false,
     canAnalyze: false,
     providerConfigured: false,
-    providerIndex: 0,
-    providerNames: [],
-    selectedProviderName: '',
-    selectedProvider: 'deepseek',
+    configuredProviders: [],   // 已配置且启用的 provider 列表 [{key,name}]
+    analysts: [],              // 选中的分析师 provider key 数组
+    synthIndex: 0,             // 汇总模型 picker 索引
+    synthNames: [],            // 汇总模型名称列表（随选中分析师动态更新）
     selectedType: 'portfolio_health',
     analysisTypes: ANALYSIS_TYPES,
     summary: {
@@ -31,29 +33,21 @@ Page({
       riskLevel: '',
       content: '',
       date: '',
+      multiMode: false,
+      subReports: [],
     },
+    showSubReports: false,
     historyReports: [],
     qaQuestion: '',
     qaAnswer: '',
+    canAsk: false,
     pnlColor: 'price-flat',
-  },
-
-  onLoad() {
-    this.initProviders();
   },
 
   onShow() {
     this.loadData();
     this.loadLLMConfig();
     this.loadHistory();
-  },
-
-  initProviders() {
-    const names = LLM_PROVIDERS.map(p => `${p.icon} ${p.name}`);
-    this.setData({
-      providerNames: names,
-      selectedProviderName: names[0] || '请选择模型',
-    });
   },
 
   async loadData() {
@@ -63,10 +57,10 @@ Page({
       const accountCount = summary.accounts ? summary.accounts.length : 0;
       this.setData({
         summary: { ...summary, accountCount },
-        pnlColor: getPriceColor(summary.totalPnL),
-        canAnalyze: summary.holdings && summary.holdings.length > 0 && this.data.providerConfigured,
+        pnlColor: getPriceColor(summary.totalAllPnL != null ? summary.totalAllPnL : summary.totalPnL),
         loading: false,
       });
+      this.updateCanAnalyze();
     } catch (err) {
       console.error('[AI] loadData error:', err);
       this.setData({ loading: false });
@@ -76,18 +70,26 @@ Page({
   async loadLLMConfig() {
     try {
       const config = await api.getLLMConfig();
+      let configuredProviders = [];
       if (config && config.providers) {
-        const configured = Object.entries(config.providers)
-          .filter(([k, v]) => v.enabled && v.api_key)
-          .map(([k]) => k);
-        this.setData({
-          providerConfigured: configured.length > 0,
-        });
-        // 检查当前选中的模型是否已配置
-        if (configured.includes(this.data.selectedProvider)) {
-          this.setData({ providerConfigured: true });
-        }
+        configuredProviders = LLM_PROVIDERS
+          .filter(p => config.providers[p.key] && config.providers[p.key].enabled && config.providers[p.key].api_key)
+          .map(p => ({ key: p.key, name: p.name }));
       }
+      const providerConfigured = configuredProviders.length > 0;
+      // 默认选中第一个已配置模型
+      let analysts = this.data.analysts;
+      if (analysts.length === 0 && configuredProviders.length > 0) {
+        analysts = [configuredProviders[0].key];
+      } else if (configuredProviders.length > 0) {
+        // 过滤掉已失效的选中项
+        analysts = analysts.filter(k => configuredProviders.some(p => p.key === k));
+        if (analysts.length === 0) analysts = [configuredProviders[0].key];
+      } else {
+        analysts = [];
+      }
+      this.setData({ configuredProviders, providerConfigured, analysts });
+      this.updateSynthNames();
       this.updateCanAnalyze();
     } catch (err) {
       console.error('[AI] loadLLMConfig error:', err);
@@ -107,19 +109,43 @@ Page({
     this.setData({
       canAnalyze: this.data.summary.holdings &&
                   this.data.summary.holdings.length > 0 &&
-                  this.data.providerConfigured,
+                  this.data.providerConfigured &&
+                  this.data.analysts.length > 0,
     });
   },
 
-  onProviderChange(e) {
-    const index = e.detail.value;
-    const provider = LLM_PROVIDERS[index];
-    this.setData({
-      providerIndex: index,
-      selectedProvider: provider.key,
-      selectedProviderName: `${provider.icon} ${provider.name}`,
-    });
-    this.loadLLMConfig();
+  /** 切换分析师选中态 */
+  onToggleAnalyst(e) {
+    const key = e.currentTarget.dataset.key;
+    let analysts = this.data.analysts.slice();
+    const idx = analysts.indexOf(key);
+    if (idx >= 0) {
+      // 至少保留 1 个
+      if (analysts.length <= 1) {
+        wx.showToast({ title: '至少选择 1 个模型', icon: 'none' });
+        return;
+      }
+      analysts.splice(idx, 1);
+    } else {
+      analysts.push(key);
+    }
+    this.setData({ analysts });
+    this.updateSynthNames();
+    this.updateCanAnalyze();
+  },
+
+  /** 更新汇总模型候选列表（仅含已选中的分析师） */
+  updateSynthNames() {
+    const selected = this.data.configuredProviders.filter(p => this.data.analysts.indexOf(p.key) >= 0);
+    const synthNames = selected.map(p => p.name);
+    // 索引越界保护
+    let synthIndex = this.data.synthIndex;
+    if (synthIndex >= synthNames.length) synthIndex = 0;
+    this.setData({ synthNames, synthIndex });
+  },
+
+  onSynthChange(e) {
+    this.setData({ synthIndex: parseInt(e.detail.value, 10) });
   },
 
   onTypeSelect(e) {
@@ -129,15 +155,28 @@ Page({
 
   async onStartAnalysis() {
     if (!this.data.canAnalyze || this.data.analyzing) return;
+    const analysts = this.data.analysts;
+    if (analysts.length === 0) {
+      wx.showToast({ title: '请至少选择 1 个模型', icon: 'none' });
+      return;
+    }
 
-    this.setData({ analyzing: true });
-    wx.showLoading({ title: 'AI 分析中...', mask: true });
+    this.setData({ analyzing: true, showSubReports: false });
+    const multi = analysts.length > 1;
+    wx.showLoading({
+      title: multi ? `多模型协作分析中（${analysts.length} 个模型）...` : 'AI 分析中...',
+      mask: true,
+    });
 
     try {
-      const res = await api.analyzePortfolio(
-        this.data.selectedType,
-        this.data.selectedProvider
-      );
+      let res;
+      if (multi) {
+        // 汇总模型 = 当前 picker 选中的
+        const synthKey = this.data.analysts[this.data.synthIndex] || analysts[0];
+        res = await api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
+      } else {
+        res = await api.analyzePortfolio(this.data.selectedType, analysts[0]);
+      }
 
       if (res && res.success) {
         const report = res.report || {};
@@ -149,10 +188,11 @@ Page({
             riskLevel: report.risk_level || '',
             content: report.report_content || '',
             date: formatDate(new Date()),
+            multiMode: !!res.multiMode,
+            subReports: res.subReports || [],
           },
         });
         wx.hideLoading();
-        // 刷新历史报告
         this.loadHistory();
       } else {
         wx.hideLoading();
@@ -167,6 +207,10 @@ Page({
     this.setData({ analyzing: false });
   },
 
+  onToggleSubReports() {
+    this.setData({ showSubReports: !this.data.showSubReports });
+  },
+
   onViewHistory(e) {
     const report = e.currentTarget.dataset.report;
     wx.navigateTo({
@@ -177,12 +221,14 @@ Page({
   async onAskQuestion() {
     const question = this.data.qaQuestion.trim();
     if (!question) return;
+    // QA 模式用第一个选中的模型
+    const provider = this.data.analysts[0] || 'deepseek';
 
     this.setData({ qaAnswer: '' });
     wx.showLoading({ title: '思考中...', mask: true });
 
     try {
-      const res = await api.askAI(question, this.data.selectedProvider);
+      const res = await api.askAI(question, provider);
       wx.hideLoading();
 
       if (res && res.success) {
@@ -196,9 +242,13 @@ Page({
     }
   },
 
+  onQaInputChange(e) {
+    this.setData({ canAsk: (e.detail.value || '').trim().length > 0 });
+  },
+
   onQuickQuestion(e) {
     const q = e.currentTarget.dataset.q;
-    this.setData({ qaQuestion: q }, () => {
+    this.setData({ qaQuestion: q, canAsk: true }, () => {
       this.onAskQuestion();
     });
   },

@@ -7,10 +7,76 @@ const { LLM_PROVIDERS } = require('../../utils/constants');
 Page({
   data: {
     llmProviders: [],
+    userInfo: null,
+    tempAvatarUrl: '',
+    tempNickName: '',
   },
 
   onShow() {
+    this.loadUserInfo();
     this.loadProviderStatus();
+  },
+
+  /** 从全局/本地读取已登录用户信息 */
+  loadUserInfo() {
+    const app = getApp();
+    let info = app.globalData.userInfo;
+    if (!info) {
+      try {
+        info = wx.getStorageSync('userInfo') || null;
+        if (info) app.globalData.userInfo = info;
+      } catch (e) {}
+    }
+    this.setData({ userInfo: info });
+  },
+
+  /** 选择头像回调（微信基础库 2.21.2+ chooseAvatar） */
+  onChooseAvatar(e) {
+    this.setData({ tempAvatarUrl: e.detail.avatarUrl || '' });
+  },
+
+  onNicknameInput(e) {
+    this.setData({ tempNickName: e.detail.value || '' });
+  },
+
+  /** 登录：保存头像+昵称到本地与全局 */
+  onLogin() {
+    const avatarUrl = this.data.tempAvatarUrl;
+    const nickName = (this.data.tempNickName || '').trim();
+    if (!avatarUrl) {
+      wx.showToast({ title: '请先选择头像', icon: 'none' });
+      return;
+    }
+    if (!nickName) {
+      wx.showToast({ title: '请输入昵称', icon: 'none' });
+      return;
+    }
+    const userInfo = { avatarUrl, nickName };
+    try {
+      wx.setStorageSync('userInfo', userInfo);
+    } catch (e) {}
+    const app = getApp();
+    app.globalData.userInfo = userInfo;
+    this.setData({ userInfo, tempAvatarUrl: '', tempNickName: '' });
+    wx.showToast({ title: '登录成功', icon: 'success' });
+  },
+
+  /** 退出登录 */
+  onLogout() {
+    wx.showModal({
+      title: '退出登录',
+      content: '退出后本地保存的用户信息将被清除，您的云端数据仍保留。是否继续？',
+      success: (r) => {
+        if (!r.confirm) return;
+        try {
+          wx.removeStorageSync('userInfo');
+        } catch (e) {}
+        const app = getApp();
+        app.globalData.userInfo = null;
+        this.setData({ userInfo: null });
+        wx.showToast({ title: '已退出', icon: 'none' });
+      },
+    });
   },
 
   async loadProviderStatus() {

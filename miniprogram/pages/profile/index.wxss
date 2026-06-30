@@ -36,7 +36,36 @@
   align-items: center;
 }
 .menu-icon { font-size: 32rpx; margin-right: 16rpx; }
+.menu-icon-img { width: 40rpx; height: 40rpx; margin-right: 16rpx; }
 .menu-left text:last-child { font-size: 28rpx; }
+
+/* 登录区域 */
+.login-card { padding: 40rpx 30rpx; }
+.login-tip { font-size: 26rpx; color: var(--text-tertiary); margin-bottom: 24rpx; display: block; }
+.login-row { display: flex; align-items: center; gap: 16rpx; }
+.avatar-btn {
+  width: 100rpx; height: 100rpx; border-radius: 50%; padding: 0;
+  background: var(--bg-input); border: 2rpx dashed var(--divider-color);
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.avatar-btn::after { border: none; }
+.avatar-img { width: 100rpx; height: 100rpx; border-radius: 50%; }
+.nickname-input {
+  flex: 1; height: 80rpx; padding: 0 20rpx;
+  background: var(--bg-input); border-radius: 12rpx; font-size: 28rpx;
+  color: var(--text-primary);
+}
+.login-actions { margin-top: 24rpx; display: flex; gap: 16rpx; }
+.login-actions .btn-primary { flex: 1; }
+.btn-secondary {
+  flex: 1; height: 80rpx; line-height: 80rpx; text-align: center;
+  border-radius: 12rpx; font-size: 28rpx; color: var(--text-secondary);
+  background: var(--bg-input);
+}
+.logout-btn {
+  margin-top: 16rpx; font-size: 24rpx; color: var(--text-tertiary);
+  text-align: center; padding: 12rpx;
+}
 .menu-right { display: flex; align-items: center; }
 .menu-status { font-size: 22rpx; margin-right: 8rpx; }
 .menu-status.ok { color: var(--color-down); }

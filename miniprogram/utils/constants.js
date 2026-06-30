@@ -139,6 +139,9 @@ const CLOUD_FUNCTIONS = {
   PARSE_IMPORT: 'parse_import',
   EXPORT_DATA: 'export_data',
   PARSE_TRADES_BY_TEXT: 'parse_trades_by_text',
+  SAVE_NOTIFY_SETTINGS: 'save_notify_settings',
+  GET_NOTIFY_SETTINGS: 'get_notify_settings',
+  CHECK_PRICE_ALERT: 'check_price_alert',
 };
 
 module.exports = {

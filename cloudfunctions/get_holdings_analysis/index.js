@@ -10,11 +10,13 @@ exports.main = async (event) => {
   try {
     const wxContext = cloud.getWXContext();
     const openid = wxContext.OPENID || '';
+    // 按 openid 隔离（云函数为 admin 权限，需手动过滤）
+    const query = openid ? { _openid: openid } : {};
 
     // 获取账户
-    const { data: accounts } = await db.collection('accounts').get();
+    const { data: accounts } = await db.collection('accounts').where(query).get();
     // 获取持仓
-    const { data: holdings } = await db.collection('holdings').get();
+    const { data: holdings } = await db.collection('holdings').where(query).get();
 
     // 构建账户维度汇总
     const accountSummary = accounts.map(acc => {

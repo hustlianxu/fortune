@@ -1,0 +1,9 @@
+{
+  "name": "save_notify_settings",
+  "version": "1.0.0",
+  "description": "Save user notify settings to notify_settings collection (per openid)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

@@ -1,13 +1,25 @@
 <!-- 我的 - 设置页 -->
 <view class="page">
-  <!-- 用户信息 -->
-  <view class="card user-card">
-    <view class="user-avatar">
-      <text class="avatar-text">👤</text>
-    </view>
+  <!-- 用户信息：未登录显示登录入口，已登录显示用户信息 -->
+  <view class="card user-card" wx:if="{{userInfo}}">
+    <image class="avatar-img" src="{{userInfo.avatarUrl}}" mode="aspectFill"></image>
     <view class="user-info">
-      <text class="user-name">个人资产管家</text>
-      <text class="user-desc">统一管理您的投资资产</text>
+      <text class="user-name">{{userInfo.nickName}}</text>
+      <text class="user-desc">已登录 · 数据按账户隔离</text>
+    </view>
+  </view>
+
+  <view class="card login-card" wx:else>
+    <text class="login-tip">登录后即可同步您的资产数据，数据按微信账户隔离保存</text>
+    <view class="login-row">
+      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <text wx:if="{{!tempAvatarUrl}}" class="avatar-text">👤</text>
+        <image wx:else class="avatar-img" src="{{tempAvatarUrl}}" mode="aspectFill"></image>
+      </button>
+      <input class="nickname-input" type="nickname" placeholder="点击输入昵称" value="{{tempNickName}}" bindinput="onNicknameInput" bindblur="onNicknameInput" />
+    </view>
+    <view class="login-actions">
+      <button class="btn-primary" bindtap="onLogin">登录</button>
     </view>
   </view>
 
@@ -72,7 +84,7 @@
       data-provider="{{item.key}}"
     >
       <view class="menu-left">
-        <text class="menu-icon">{{item.icon}}</text>
+        <image class="menu-icon-img" src="../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
         <text>{{item.name}}</text>
       </view>
       <view class="menu-right">
@@ -112,7 +124,7 @@
     <view class="menu-item">
       <view class="menu-left">
         <text class="menu-icon">📖</text>
-        <text>版本 0.2.1</text>
+        <text>版本 0.2.4</text>
       </view>
     </view>
     <view class="menu-item" bindtap="onShowPrivacy">
@@ -123,4 +135,7 @@
       <text class="menu-arrow">›</text>
     </view>
   </view>
+
+  <!-- 退出登录 -->
+  <view class="logout-btn" wx:if="{{userInfo}}" bindtap="onLogout">退出登录</view>
 </view>

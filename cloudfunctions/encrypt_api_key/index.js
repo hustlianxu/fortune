@@ -39,8 +39,10 @@ exports.main = async (event) => {
       }
     }
 
-    // 检查是否已存在配置
-    const { data: existing } = await db.collection('llm_configs').get();
+    // 检查是否已存在配置（按 openid 隔离）
+    const openid = wxContext.OPENID || '';
+    const existingQuery = openid ? { _openid: openid } : {};
+    const { data: existing } = await db.collection('llm_configs').where(existingQuery).get();
 
     if (existing.length > 0) {
       // 更新已有配置
@@ -68,7 +70,7 @@ exports.main = async (event) => {
       // 新增配置
       await db.collection('llm_configs').add({
         data: {
-          _openid: wxContext.OPENID || '',
+          _openid: openid,
           providers: encryptedConfig,
           default_provider: 'deepseek',
           created_at: db.serverDate(),

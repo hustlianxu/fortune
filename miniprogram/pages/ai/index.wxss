@@ -31,6 +31,69 @@
 .configured { color: var(--color-down); }
 .unconfigured { color: var(--txn-sell); }
 
+.section-hint { font-size: 24rpx; color: var(--text-tertiary); margin-bottom: 16rpx; display: block; }
+
+/* 模型多选 chips */
+.provider-chips {
+  white-space: nowrap;
+  padding: 4rpx 0;
+}
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 12rpx 20rpx;
+  margin-right: 16rpx;
+  background: var(--bg-input);
+  border-radius: 40rpx;
+  border: 2rpx solid var(--border-color);
+  transition: all 0.15s;
+}
+.provider-chip.selected {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
+.provider-chip.selected .chip-name { color: #fff; }
+.chip-icon { width: 36rpx; height: 36rpx; margin-right: 8rpx; border-radius: 8rpx; }
+.chip-name { font-size: 26rpx; color: var(--text-primary); }
+
+/* 汇总模型选择 */
+.synth-row {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid var(--divider-color);
+}
+.synth-label { font-size: 26rpx; color: var(--text-secondary); display: block; margin-bottom: 12rpx; }
+
+/* 子报告折叠区 */
+.sub-reports {
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid var(--divider-color);
+}
+.sub-reports-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 26rpx;
+  color: var(--text-secondary);
+}
+.sub-toggle { font-size: 24rpx; color: var(--primary-color); }
+.sub-report-item {
+  margin-top: 16rpx;
+  padding: 16rpx;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+}
+.sub-report-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+.sub-report-header .chip-icon { width: 32rpx; height: 32rpx; margin-right: 8rpx; }
+.sub-report-provider { font-size: 26rpx; font-weight: 600; color: var(--text-primary); }
+.sub-report-error { font-size: 22rpx; color: var(--txn-sell); margin-left: 8rpx; }
+.sub-report-content { font-size: 24rpx; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; display: block; }
+
 /* 持仓概况 */
 .overview-grid {
   display: flex;

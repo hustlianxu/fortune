@@ -189,10 +189,17 @@ ${question}
 }
 
 /**
- * 获取持仓摘要数据
+ * 获取持仓摘要数据（按 openid 隔离）
  */
-async function getHoldingsSummary() {
-  const { data: holdings } = await db.collection('holdings').get();
+async function getHoldingsSummary(openid) {
+  let holdings;
+  if (openid) {
+    const res = await db.collection('holdings').where({ _openid: openid }).get();
+    holdings = res.data;
+  } else {
+    const res = await db.collection('holdings').get();
+    holdings = res.data;
+  }
 
   if (!holdings || holdings.length === 0) {
     return null;
@@ -326,6 +333,42 @@ async function callClaude(apiKey, messages, model) {
 }
 
 /**
+ * 统一 LLM 调用入口（自动分发 OpenAI 兼容 / Claude）
+ */
+async function callLLM(provider, apiKey, messages, model) {
+  if (provider === 'claude') {
+    return callClaude(apiKey, messages, model);
+  }
+  return callOpenAICompatible(provider, apiKey, messages, model);
+}
+
+/**
+ * 构建汇总 Prompt：将多位分析师的独立报告交给指定模型汇总
+ */
+function buildSynthesisPrompt(type, subReports) {
+  const sections = subReports.map((r, i) =>
+    `=== 分析师 ${i + 1}（${r.provider}）的独立报告 ===\n${r.content || '（无输出）'}`
+  ).join('\n\n');
+
+  return `你是一位首席投资顾问。以下是多位 AI 分析师对同一投资组合的独立分析报告。请综合所有报告，去重并融合观点，输出一份最终的综合分析报告。
+
+${sections}
+
+=== 汇总要求 ===
+1. 找出多位分析师达成共识的观点，作为【共识观点】
+2. 标出分析师之间存在分歧的地方，作为【分歧观点】
+3. 综合所有报告给出最终评级和建议
+
+请输出：
+【综合摘要】200字以内
+【共识观点】多位分析师一致认同的发现（列表）
+【分歧观点】分析师之间存在分歧的地方（如有）
+【关键发现】融合后的关键发现（列表）
+【综合建议】最终调仓/改善建议
+【综合评级】A/B/C/D + 简短理由`;
+}
+
+/**
  * 解析分析结果
  */
 function parseAnalysisResult(content) {
@@ -361,48 +404,136 @@ function parseAnalysisResult(content) {
  * 入口函数
  */
 exports.main = async (event) => {
-  const { type = 'portfolio_health', provider = 'deepseek', question = '' } = event;
+  const {
+    type = 'portfolio_health',
+    provider = 'deepseek',
+    question = '',
+    analysts,           // 多 AI 协作：分析师 provider 数组（可选）
+    synthesizer,        // 多 AI 协作：汇总 provider（可选，默认取 analysts[0]）
+  } = event;
   const wxContext = cloud.getWXContext();
+  const openid = wxContext.OPENID || '';
 
   try {
-    // 1. 获取用户的 LLM 配置
-    const { data: configs } = await db.collection('llm_configs').get();
+    // 1. 获取用户的 LLM 配置（按 openid 隔离）
+    const cfgQuery = openid ? { _openid: openid } : {};
+    const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
     const userConfig = configs[0];
+    if (!userConfig || !userConfig.providers) {
+      return { success: false, message: '请先在设置中配置 LLM API Key' };
+    }
 
-    if (!userConfig || !userConfig.providers || !userConfig.providers[provider]) {
+    // 2. 获取持仓数据（按 openid 隔离）
+    const holdingsSummary = await getHoldingsSummary(openid);
+    if (!holdingsSummary) {
+      return { success: false, message: '暂无持仓数据，请先添加持仓' };
+    }
+
+    // 3. 判断模式：多 AI 协作 or 单 AI
+    const isMultiMode = Array.isArray(analysts) && analysts.filter(Boolean).length > 0;
+
+    if (isMultiMode) {
+      // ============ 多 AI 协作模式 ============
+      const analystList = analysts.filter(Boolean);
+      // 校验所有分析师均已配置
+      const invalid = analystList.find(p => !userConfig.providers[p] || !userConfig.providers[p].enabled || !userConfig.providers[p].api_key);
+      if (invalid) {
+        return { success: false, message: `${invalid} 未配置或未启用，请先在设置中配置` };
+      }
+      const synthProvider = synthesizer || analystList[0];
+      if (!userConfig.providers[synthProvider] || !userConfig.providers[synthProvider].enabled || !userConfig.providers[synthProvider].api_key) {
+        return { success: false, message: `汇总模型 ${synthProvider} 未配置或未启用` };
+      }
+
+      // 构建分析 Prompt（QA 不支持多模型协作，强制走分析类）
+      const analysisType = type === 'qa' ? 'portfolio_health' : type;
+      const prompt = buildAnalysisPrompt(analysisType, holdingsSummary);
+      const messages = [
+        { role: 'system', content: '你是一位专业的投资顾问，回答要专业、具体、以数据为基础。使用中文回复。' },
+        { role: 'user', content: prompt },
+      ];
+
+      // 逐个调用分析师模型（顺序调用，避免并发触发服务商限流）
+      const subReports = [];
+      for (const ap of analystList) {
+        const cfg = userConfig.providers[ap];
+        const apiKey = decrypt(cfg.api_key);
+        if (!apiKey) {
+          subReports.push({ provider: ap, content: '', error: 'API Key 解密失败' });
+          continue;
+        }
+        const model = cfg.model || PROVIDERS[ap].defaultModel || '';
+        try {
+          const content = await callLLM(ap, apiKey, messages, model);
+          subReports.push({ provider: ap, content, model });
+        } catch (err) {
+          subReports.push({ provider: ap, content: '', error: err.message });
+        }
+      }
+
+      // 仅一个分析师 或 汇总模型与唯一分析师相同 → 直接返回该报告（无需汇总）
+      let finalContent;
+      let usedSynth = false;
+      if (analystList.length === 1) {
+        finalContent = subReports[0].content;
+      } else {
+        // 多分析师 → 调汇总模型
+        const synthCfg = userConfig.providers[synthProvider];
+        const synthApiKey = decrypt(synthCfg.api_key);
+        if (!synthApiKey) {
+          return { success: false, message: '汇总模型 API Key 解密失败' };
+        }
+        const synthModel = synthCfg.model || PROVIDERS[synthProvider].defaultModel || '';
+        const synthPrompt = buildSynthesisPrompt(analysisType, subReports);
+        const synthMessages = [
+          { role: 'system', content: '你是一位首席投资顾问，擅长综合多方观点给出最终结论。使用中文回复。' },
+          { role: 'user', content: synthPrompt },
+        ];
+        finalContent = await callLLM(synthProvider, synthApiKey, synthMessages, synthModel);
+        usedSynth = true;
+      }
+
+      // 解析并保存报告
+      const parsed = parseAnalysisResult(finalContent);
+      await db.collection('analysis_reports').add({
+        data: {
+          _openid: openid,
+          type: analysisType,
+          provider: synthProvider,
+          model: usedSynth ? (userConfig.providers[synthProvider].model || PROVIDERS[synthProvider].defaultModel || '') : (subReports[0].model || ''),
+          analysts: analystList,
+          synthesizer: usedSynth ? synthProvider : '',
+          snapshot_date: new Date().toISOString().split('T')[0],
+          summary: parsed.summary,
+          report_content: finalContent,
+          key_findings: parsed.key_findings,
+          risk_level: parsed.risk_level,
+          created_at: db.serverDate(),
+        },
+      });
+
       return {
-        success: false,
-        message: `请先在设置中配置 ${provider} 的 API Key`,
+        success: true,
+        report: parsed,
+        subReports,          // 各分析师原始报告（供前端折叠展示）
+        multiMode: true,
       };
     }
 
+    // ============ 单 AI 模式（保持原逻辑） ============
+    if (!userConfig.providers[provider]) {
+      return { success: false, message: `请先在设置中配置 ${provider} 的 API Key` };
+    }
     const providerConfig = userConfig.providers[provider];
     if (!providerConfig.enabled || !providerConfig.api_key) {
-      return {
-        success: false,
-        message: `${provider} 未启用或未配置 API Key`,
-      };
+      return { success: false, message: `${provider} 未启用或未配置 API Key` };
     }
-
-    // 2. 解密 API Key
     const apiKey = decrypt(providerConfig.api_key);
     if (!apiKey) {
-      return {
-        success: false,
-        message: 'API Key 解密失败，请重新配置',
-      };
+      return { success: false, message: 'API Key 解密失败，请重新配置' };
     }
 
-    // 3. 获取持仓数据
-    const holdingsSummary = await getHoldingsSummary();
-    if (!holdingsSummary) {
-      return {
-        success: false,
-        message: '暂无持仓数据，请先添加持仓',
-      };
-    }
-
-    // 4. 构建 Prompt
+    // 构建 Prompt
     let messages;
     if (type === 'qa') {
       const prompt = buildQAPrompt(holdingsSummary, question);
@@ -415,21 +546,16 @@ exports.main = async (event) => {
       ];
     }
 
-    // 5. 调用 LLM
+    // 调用 LLM
     const model = providerConfig.model || PROVIDERS[provider].defaultModel || '';
-    let content;
-    if (provider === 'claude') {
-      content = await callClaude(apiKey, messages, model);
-    } else {
-      content = await callOpenAICompatible(provider, apiKey, messages, model);
-    }
+    const content = await callLLM(provider, apiKey, messages, model);
 
-    // 6. 保存分析报告
+    // 保存分析报告
     if (type !== 'qa') {
       const parsed = parseAnalysisResult(content);
       await db.collection('analysis_reports').add({
         data: {
-          _openid: wxContext.OPENID || '',
+          _openid: openid,
           type,
           provider,
           model,
@@ -442,17 +568,11 @@ exports.main = async (event) => {
         },
       });
 
-      return {
-        success: true,
-        report: parsed,
-      };
+      return { success: true, report: parsed };
     }
 
     // QA 类型直接返回答案
-    return {
-      success: true,
-      answer: content,
-    };
+    return { success: true, answer: content };
 
   } catch (err) {
     console.error('[llm_gateway] error:', err);
