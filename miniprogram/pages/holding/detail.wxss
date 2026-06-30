@@ -23,6 +23,70 @@
 .price-label { font-size: 22rpx; color: var(--text-tertiary); display: block; }
 .price-value { font-size: 32rpx; font-weight: 700; display: block; margin-top: 4rpx; }
 
+/* ═══════ 总收益卡（同花顺口径） ═══════ */
+.total-pnl-card {
+  background: linear-gradient(135deg, rgba(108, 99, 255, 0.06), rgba(108, 99, 255, 0.02));
+  border: 1rpx solid var(--divider-color);
+  border-radius: var(--radius-card, 16rpx);
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+.total-pnl-card.price-up {
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.08), rgba(231, 76, 60, 0.02));
+}
+.total-pnl-card.price-down {
+  background: linear-gradient(135deg, rgba(39, 174, 96, 0.08), rgba(39, 174, 96, 0.02));
+}
+.total-pnl-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8rpx;
+}
+.total-pnl-label { font-size: 26rpx; color: var(--text-secondary); }
+.total-pnl-value {
+  font-size: 44rpx;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.total-pnl-card.price-up .total-pnl-value { color: var(--color-up, #e74c3c); }
+.total-pnl-card.price-down .total-pnl-value { color: var(--color-down, #27ae60); }
+.total-pnl-pct {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 12rpx;
+}
+.total-pnl-card.price-up .total-pnl-pct { color: var(--color-up, #e74c3c); }
+.total-pnl-card.price-down .total-pnl-pct { color: var(--color-down, #27ae60); }
+.total-pnl-hint {
+  display: block;
+  font-size: 20rpx;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+/* ═══════ 收益分项明细 ═══════ */
+.pnl-breakdown {
+  background: var(--bg-input, #f7f7f7);
+  border-radius: var(--radius-sm, 10rpx);
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+}
+.breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10rpx 0;
+}
+.breakdown-label { font-size: 24rpx; color: var(--text-tertiary); }
+.breakdown-value { font-size: 26rpx; font-weight: 500; }
+.breakdown-value.price-up { color: var(--color-up, #e74c3c); }
+.breakdown-value.price-down { color: var(--color-down, #27ae60); }
+.breakdown-income { color: var(--txn-income, #f39c12); }
+.breakdown-fee { color: var(--text-tertiary, #8e8e93); }
+
 .info-grid { margin-bottom: 24rpx; }
 .info-item {
   display: flex;

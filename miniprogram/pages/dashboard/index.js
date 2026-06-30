@@ -46,12 +46,15 @@ Page({
     this.setData({ loading: true });
     try {
       const summary = await api.getPortfolioSummary();
+      // 优先使用总收益（同花顺口径：浮动+已实现+分红-手续费），回退到浮动盈亏
+      const totalPnlForDisplay = summary.totalAllPnL != null ? summary.totalAllPnL : summary.totalPnL;
+      const totalPnlPctForDisplay = summary.totalAllPnLPercent != null ? summary.totalAllPnLPercent : (summary.totalPnLPercent || 0);
       this.setData({
         summary,
-        pnlColor: getPriceColor(summary.totalPnL),
-        pnlArrow: getPriceArrow(summary.totalPnL),
+        pnlColor: getPriceColor(totalPnlForDisplay),
+        pnlArrow: getPriceArrow(totalPnlForDisplay),
         todayPnlColor: getPriceColor(summary.todayPnL),
-        pnlPercentText: (summary.totalPnLPercent || 0).toFixed(2) + '%',
+        pnlPercentText: (totalPnlPctForDisplay || 0).toFixed(2) + '%',
         lastUpdate: wx.getStorageSync('last_price_update') || '',
         distributionList: this.buildDistribution(summary),
         loading: false,
@@ -60,7 +63,7 @@ Page({
       // 更新全局数据
       const app = getApp();
       app.globalData.totalAssets = summary.totalAssets;
-      app.globalData.totalPnL = summary.totalPnL;
+      app.globalData.totalPnL = totalPnlForDisplay;
 
       // 数据就绪后绘制饼图
       this.drawPie();

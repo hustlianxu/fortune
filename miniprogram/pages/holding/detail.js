@@ -44,22 +44,35 @@ Page({
       const res = await db.collection('holdings').doc(this.data.holdingId).get();
       const holding = res.data || {};
       // 实时重算盈亏，避免行情刷新/编辑持仓后仍使用旧快照导致与同花顺偏差
-      // 口径：盈亏 = 当前市值 - 持仓成本；持仓成本优先用 cost_value，缺失时回退 shares × cost_price
       const shares = Number(holding.shares) || 0;
       const currentPrice = Number(holding.current_price) || 0;
       const costValue = Number(holding.cost_value) || (shares * Number(holding.cost_price || 0));
       const marketValue = shares * currentPrice;
-      const pnl = marketValue - costValue;
+      const pnl = marketValue - costValue;                                  // 浮动盈亏
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
+      const realized = Number(holding.realized_pnl) || 0;                   // 累计已实现盈亏
+      const dividend = Number(holding.total_dividend) || 0;                 // 累计分红
+      const totalFee = Number(holding.total_fee) || 0;                      // 累计手续费
+      // 总收益（同花顺口径） = 浮动 + 已实现 + 分红 - 手续费
+      const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
+      // 总收益率（按累计投入成本算）
+      const investedCost = costValue + Math.max(0, realized);  // 已实现盈亏对应的部分已退出，用累计投入近似
+      const totalPnlPercent = investedCost > 0 ? (totalPnl / investedCost) * 100 : 0;
+
       const recomputed = Object.assign({}, holding, {
         market_value: marketValue,
         cost_value: costValue,
         pnl,
         pnl_percent: pnlPercent,
+        realized_pnl: realized,
+        total_dividend: dividend,
+        total_fee: totalFee,
+        total_pnl: totalPnl,
+        total_pnl_percent: totalPnlPercent,
       });
       this.setData({
         holding: recomputed,
-        priceColor: getPriceColor(pnl),
+        priceColor: getPriceColor(totalPnl),
       });
     } catch (err) {
       console.error('[Holding Detail] load error:', err);
@@ -256,7 +269,7 @@ Page({
           const txnRes = await db.collection('transactions').doc(id).get();
           const txn = txnRes.data;
           await db.collection('transactions').doc(id).remove();
-          if (txn && (txn.type === 'buy' || txn.type === 'sell')) {
+          if (txn && (txn.type === 'buy' || txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'interest')) {
             await this.undoHolding(txn);
           }
           wx.hideLoading();
@@ -270,7 +283,7 @@ Page({
     });
   },
 
-  /** 删除交易后修正对应持仓 */
+  /** 删除交易后修正对应持仓：全量回放剩余交易，保证 realized_pnl/total_dividend/total_fee/total_pnl 与 apply_transaction 口径一致 */
   async undoHolding(txn) {
     try {
       const holdingRes = await db.collection('holdings')
@@ -279,57 +292,71 @@ Page({
       const holding = holdingRes.data[0];
       if (!holding) return;
 
-      const shares = Number(txn.shares) || 0;
-      const price = Number(txn.price) || 0;
-      const fee = Number(txn.fee) || 0;   // 与 apply_transaction 对齐：买入手续费需一并回退
-      const curShares = Number(holding.shares) || 0;
-      const curPrice = Number(holding.current_price) || 0;
+      // 拉取该持仓剩余的全部交易（被删除的已不在集合中），按日期正序回放
+      const txnsRes = await db.collection('transactions')
+        .where({ account_id: txn.account_id, product_code: txn.product_code })
+        .orderBy('trade_date', 'asc')
+        .orderBy('created_at', 'asc')
+        .get();
+      const txns = txnsRes.data || [];
 
-      if (txn.type === 'buy') {
-        const newShares = Math.max(0, curShares - shares);
-        if (newShares <= 0) {
-          await db.collection('holdings').doc(holding._id).update({
-            data: { shares: 0, is_cleared: true, updated_at: db.serverDate() },
-          });
-        } else {
-          const oldCostValue = Number(holding.cost_value) || 0;
-          // 买入成本含手续费，回退时也按 buyCost = shares*price + fee 扣减
-          const buyCost = shares * price + fee;
-          const newCostValue = Math.max(0, oldCostValue - buyCost);
-          const newCostPrice = newCostValue / newShares;
-          const newMarketValue = newShares * curPrice;
-          const pnl = newMarketValue - newCostValue;
-          await db.collection('holdings').doc(holding._id).update({
-            data: {
-              shares: newShares,
-              cost_price: Number(newCostPrice.toFixed(4)),
-              cost_value: Number(newCostValue.toFixed(2)),
-              market_value: Number(newMarketValue.toFixed(2)),
-              pnl: Number(pnl.toFixed(2)),
-              pnl_percent: newCostValue > 0 ? Number(((pnl / newCostValue) * 100).toFixed(2)) : 0,
-              is_cleared: false,
-              updated_at: db.serverDate(),
-            },
-          });
+      let shares = 0;
+      let costValue = 0;
+      let costPrice = 0;
+      let realizedPnl = 0;
+      let totalDividend = 0;
+      let totalFee = 0;
+
+      for (const t of txns) {
+        const type = t.type;
+        const tShares = Number(t.shares) || 0;
+        const tPrice = Number(t.price) || 0;
+        const tFee = Number(t.fee) || 0;
+        const tAmount = Number(t.amount) || 0;
+
+        if (type === 'buy') {
+          // 买入成本含手续费（同花顺口径）
+          const buyCost = tShares * tPrice + tFee;
+          const newShares = shares + tShares;
+          const newCostValue = costValue + buyCost;
+          costPrice = newShares > 0 ? newCostValue / newShares : tPrice;
+          shares = newShares;
+          costValue = newCostValue;
+          totalFee += tFee;
+        } else if (type === 'sell') {
+          // 已实现盈亏 = (卖出价 - 成本价) × 卖出份额 - 卖出手续费
+          const sellRealized = (tPrice - costPrice) * tShares - tFee;
+          realizedPnl += sellRealized;
+          shares = Math.max(0, shares - tShares);
+          costValue = shares * costPrice;
+          totalFee += tFee;
+        } else if (type === 'dividend' || type === 'interest') {
+          totalDividend += tAmount;
         }
-      } else if (txn.type === 'sell') {
-        const newShares = curShares + shares;
-        const costPrice = Number(holding.cost_price) || 0;
-        const newCostValue = newShares * costPrice;
-        const newMarketValue = newShares * curPrice;
-        const pnl = newMarketValue - newCostValue;
-        await db.collection('holdings').doc(holding._id).update({
-          data: {
-            shares: newShares,
-            is_cleared: false,
-            cost_value: Number(newCostValue.toFixed(2)),
-            market_value: Number(newMarketValue.toFixed(2)),
-            pnl: Number(pnl.toFixed(2)),
-            pnl_percent: newCostValue > 0 ? Number(((pnl / newCostValue) * 100).toFixed(2)) : 0,
-            updated_at: db.serverDate(),
-          },
-        });
       }
+
+      const curPrice = Number(holding.current_price) || 0;
+      const marketValue = Number((shares * curPrice).toFixed(2));
+      const pnl = Number((marketValue - costValue).toFixed(2));
+      const totalPnl = Number((pnl + realizedPnl + totalDividend - totalFee).toFixed(2));
+      const isCleared = shares <= 0;
+
+      await db.collection('holdings').doc(holding._id).update({
+        data: {
+          shares: shares,
+          cost_price: Number(costPrice.toFixed(4)),
+          cost_value: Number(costValue.toFixed(2)),
+          market_value: marketValue,
+          pnl: pnl,
+          pnl_percent: costValue > 0 ? Number(((pnl / costValue) * 100).toFixed(2)) : 0,
+          realized_pnl: Number(realizedPnl.toFixed(2)),
+          total_dividend: Number(totalDividend.toFixed(2)),
+          total_fee: Number(totalFee.toFixed(2)),
+          total_pnl: totalPnl,
+          is_cleared: isCleared,
+          updated_at: db.serverDate(),
+        },
+      });
     } catch (err) {
       console.error('[undoHolding] error:', err);
     }

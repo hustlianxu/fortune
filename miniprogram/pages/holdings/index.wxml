@@ -54,8 +54,9 @@
               <text class="holding-name">{{h.product_name}}</text>
               <text class="strategy-badge" wx:if="{{h.strategy}}">{{h.strategy}}</text>
             </view>
-            <view class="holding-pnl {{fmt.pnlClass(h.pnl)}}">
-              <text>{{fmt.pnlSign(h.pnl)}}{{fmt.formatMoney(h.pnl)}}</text>
+            <view class="holding-pnl {{fmt.pnlClass(h.total_pnl)}}">
+              <text class="pnl-amount">{{fmt.pnlSign(h.total_pnl)}}{{fmt.formatMoney(h.total_pnl)}}</text>
+              <text class="pnl-tag" wx:if="{{h.realized_pnl || h.total_dividend}}">含已实现/分红</text>
             </view>
           </view>
           <view class="holding-body">

@@ -88,7 +88,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.holding-pnl { font-size: 26rpx; font-weight: 500; white-space: nowrap; }
+.holding-pnl { font-size: 26rpx; font-weight: 500; white-space: nowrap; text-align: right; }
+.pnl-amount { display: block; }
+.pnl-tag {
+  display: block;
+  font-size: 18rpx;
+  font-weight: 400;
+  color: var(--text-tertiary, #8e8e93);
+  margin-top: 2rpx;
+}
 .holding-body { display: flex; align-items: center; margin-bottom: var(--space-xs); }
 .holding-code { font-size: 24rpx; color: var(--text-tertiary); margin-right: var(--space-sm); }
 .holding-footer { display: flex; gap: var(--space-md); }

@@ -18,7 +18,7 @@
       <view class="stat-divider"></view>
       <view class="stat-item">
         <text class="stat-label">累计收益</text>
-        <text class="stat-value {{pnlColor}}">{{fmt.formatMoney(summary.totalPnL)}}</text>
+        <text class="stat-value {{pnlColor}}">{{fmt.formatMoney(summary.totalAllPnL != null ? summary.totalAllPnL : summary.totalPnL)}}</text>
       </view>
       <view class="stat-divider"></view>
       <view class="stat-item">
@@ -72,8 +72,8 @@
           <text class="account-name">{{item.name}}</text>
           <text class="account-type-tag">{{c.platformName(item.platform || item.type)}}</text>
         </view>
-        <view class="account-pnl {{fmt.pnlClass(item.pnl)}}">
-          <text>{{fmt.pnlSign(item.pnl)}}{{fmt.formatMoney(item.pnl)}}</text>
+        <view class="account-pnl {{fmt.pnlClass(item.total_pnl != null ? item.total_pnl : item.pnl)}}">
+          <text>{{fmt.pnlSign(item.total_pnl != null ? item.total_pnl : item.pnl)}}{{fmt.formatMoney(item.total_pnl != null ? item.total_pnl : item.pnl)}}</text>
           <text class="pnl-percent">({{fmt.formatPercent(item.pnl_percent, false)}})</text>
         </view>
       </view>

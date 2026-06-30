@@ -121,6 +121,11 @@ exports.main = async (event) => {
       const pnl = marketValue - costValue;
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
       const dailyChange = priceData.change || 0;
+      // 总收益（同花顺口径）：浮动 + 已实现 + 分红 - 累计手续费
+      const realized = Number(h.realized_pnl) || 0;
+      const dividend = Number(h.total_dividend) || 0;
+      const totalFee = Number(h.total_fee) || 0;
+      const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
 
       await db.collection('holdings').doc(h._id).update({
         data: {
@@ -128,6 +133,7 @@ exports.main = async (event) => {
           market_value: marketValue,
           pnl,
           pnl_percent: pnlPercent,
+          total_pnl: totalPnl,
           daily_change: dailyChange,
           price_updated_at: db.serverDate(),
         },

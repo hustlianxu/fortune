@@ -36,8 +36,8 @@ Page({
         strategyList: summary.strategySummaries || [],
         allSummary: {
           marketValue: summary.totalMarketValue || 0,
-          pnl: summary.totalPnL || 0,
-          pnlPercent: summary.totalPnLPercent || 0,
+          pnl: summary.totalAllPnL || summary.totalPnL || 0,   // 优先总收益口径
+          pnlPercent: summary.totalAllPnLPercent || summary.totalPnLPercent || 0,
           holdingCount: summary.holdingCount || 0,
         },
       });

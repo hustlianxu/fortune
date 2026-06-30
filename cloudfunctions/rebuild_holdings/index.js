@@ -8,9 +8,10 @@
  * 流程：
  *   1. 拉取范围内全部 transactions，按 trade_date asc, created_at asc 排序
  *   2. 内存回放：每个 (account_id, product_code) 维护一个 holding
- *      - buy：累加份额 + 加权成本（含手续费，同花顺口径）
- *      - sell：扣减份额，归零标记清仓
- *      - 其他：跳过份额
+ *      - buy：累加份额 + 加权成本（含手续费，同花顺口径）；total_fee += fee
+ *      - sell：扣减份额；realized_pnl += (sell_price - cost_price) * sell_shares - fee；total_fee += fee
+ *      - dividend/interest：total_dividend += amount
+ *      - 其他：跳过
  *   3. upsert 到 holdings 集合（按 account_id+product_code 定位）
  *   4. 标记所有已回放的 transactions.applied_holding = true
  *   5. 返回统计 { rebuilt, cleared, skipped }
@@ -34,7 +35,6 @@ async function fetchAll(collection, where) {
     all = all.concat(res.data);
     if (res.data.length < PAGE_SIZE) break;
     skip += PAGE_SIZE;
-    // 安全上限，防止异常数据死循环
     if (skip > 10000) break;
   }
   return all;
@@ -50,7 +50,6 @@ exports.main = async (event) => {
     if (product_code) where.product_code = product_code;
 
     // 2. 拉取全部交易（按日期升序回放）
-    // 云数据库 orderBy + 分页组合在 skip 较大时性能有限，体验项目数据量可控
     let txns = await fetchAll('transactions', Object.keys(where).length ? where : null);
 
     // 排序：trade_date asc, created_at asc
@@ -70,12 +69,6 @@ exports.main = async (event) => {
       const t = txns[i];
       if (!t.account_id || !t.product_code) continue;
       const type = t.type;
-      if (type !== 'buy' && type !== 'sell') continue;
-
-      const shares = Number(t.shares) || 0;
-      const price = Number(t.price) || 0;
-      const fee = Number(t.fee) || 0;   // 买入手续费（同花顺口径：计入持仓成本）
-      if (shares <= 0) continue;
 
       const key = t.account_id + '|' + t.product_code;
       if (!holdingsMap[key]) {
@@ -90,36 +83,58 @@ exports.main = async (event) => {
           cost_value: 0,
           buy_date: t.trade_date || '',
           is_cleared: false,
+          realized_pnl: 0,
+          total_dividend: 0,
+          total_fee: 0,
         };
       }
       const h = holdingsMap[key];
 
-      if (type === 'buy') {
-        // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
-        const buyCost = shares * price + fee;
-        const oldShares = h.shares;
-        const oldCostValue = h.cost_value;
-        const newShares = oldShares + shares;
-        const newCostValue = oldCostValue + buyCost;
-        const newCost = newShares > 0 ? newCostValue / newShares : price;
-        h.shares = newShares;
-        h.cost_price = Number(newCost.toFixed(4));
-        h.cost_value = Number(newCostValue.toFixed(2));
-        h.is_cleared = false;
-        if (!h.buy_date) h.buy_date = t.trade_date || '';
-        if (!h.product_name && t.product_name) h.product_name = t.product_name;
-      } else {
-        // sell
-        const newShares = h.shares - shares;
-        if (newShares <= 0) {
-          h.shares = 0;
-          h.is_cleared = true;
-          h.cost_value = 0;
-        } else {
+      if (type === 'buy' || type === 'sell') {
+        const shares = Number(t.shares) || 0;
+        const price = Number(t.price) || 0;
+        const fee = Number(t.fee) || 0;
+        if (shares <= 0) continue;
+
+        if (type === 'buy') {
+          // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
+          const buyCost = shares * price + fee;
+          const oldShares = h.shares;
+          const oldCostValue = h.cost_value;
+          const newShares = oldShares + shares;
+          const newCostValue = oldCostValue + buyCost;
+          const newCost = newShares > 0 ? newCostValue / newShares : price;
           h.shares = newShares;
-          h.cost_value = Number((newShares * h.cost_price).toFixed(2));
+          h.cost_price = Number(newCost.toFixed(4));
+          h.cost_value = Number(newCostValue.toFixed(2));
+          h.total_fee = Number((h.total_fee + fee).toFixed(2));
+          h.is_cleared = false;
+          if (!h.buy_date) h.buy_date = t.trade_date || '';
+          if (!h.product_name && t.product_name) h.product_name = t.product_name;
+        } else {
+          // 卖出
+          const newShares = h.shares - shares;
+          const isCleared = newShares <= 0;
+          const finalShares = isCleared ? 0 : newShares;
+          // 已实现盈亏 = (卖出价 - 持仓成本价) × 卖出份额 - 卖出手续费
+          const sellRealized = (price - h.cost_price) * shares - fee;
+          h.realized_pnl = Number((h.realized_pnl + sellRealized).toFixed(2));
+          h.total_fee = Number((h.total_fee + fee).toFixed(2));
+          if (isCleared) {
+            h.shares = 0;
+            h.is_cleared = true;
+            h.cost_value = 0;
+          } else {
+            h.shares = finalShares;
+            h.cost_value = Number((finalShares * h.cost_price).toFixed(2));
+          }
         }
+      } else if (type === 'dividend' || type === 'interest') {
+        // 分红/利息：累加 total_dividend
+        const amount = Number(t.amount) || 0;
+        h.total_dividend = Number((h.total_dividend + amount).toFixed(2));
       }
+      // 其他类型（转账/手续费交易）跳过
     }
 
     // 4. upsert 到 holdings
@@ -142,11 +157,15 @@ exports.main = async (event) => {
         is_cleared: h.is_cleared,
         buy_date: h.buy_date,
         product_name: h.product_name,
+        realized_pnl: h.realized_pnl,
+        total_dividend: h.total_dividend,
+        total_fee: h.total_fee,
         updated_at: db.serverDate(),
       };
 
       if (existRes.data.length > 0) {
-        // 保留现有的 current_price/market_value 等行情字段，仅更新份额/成本
+        // 保留现有的 current_price/market_value 等行情字段，仅更新份额/成本/累计字段
+        // total_pnl 等行情刷新时由 sync_prices 重算
         await db.collection('holdings').doc(existRes.data[0]._id).update({ data: updateData });
       } else {
         // 新建
@@ -159,6 +178,7 @@ exports.main = async (event) => {
           market_value: Number((h.shares * h.cost_price).toFixed(2)),
           pnl: 0,
           pnl_percent: 0,
+          total_pnl: 0,
           daily_change: 0,
           note: '',
           created_at: db.serverDate(),
