@@ -212,3 +212,48 @@
 .it-btn-primary[disabled] { opacity: 0.4; }
 .it-btn-stop { background: var(--color-up); color: #fff; }
 .it-btn-ghost { background: var(--bg-input); color: var(--text-secondary); }
+
+/* ═══════ 已清理数据面板 ═══════ */
+.cleared-panel { max-height: 80vh; overflow: hidden; }
+.cleared-loading {
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--text-tertiary);
+  padding: 32rpx 0;
+}
+.cleared-list {
+  max-height: 50vh;
+}
+.cleared-empty {
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--text-tertiary);
+  padding: 48rpx 0;
+}
+.cleared-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.cleared-item-info { flex: 1; min-width: 0; }
+.cleared-item-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4rpx;
+}
+.cleared-item-meta {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+}
+.cleared-restore-btn {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  background: var(--primary-color);
+  color: #fff;
+  border: none;
+}

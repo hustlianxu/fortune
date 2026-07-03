@@ -31,6 +31,12 @@ Page({
       log: '',                // 进度文案
     },
     _stopFlag: false,         // 停止标志位（任务循环每批前检查）
+    // ═══════ 已清理数据面板（持仓删除后保留的交易，可恢复）═══════
+    clearedPanel: {
+      show: false,
+      loading: false,
+      groups: [],             // [{ account_id, product_code, product_name, account_name, count, latest_date, txnIds }]
+    },
   },
 
   onShow() {
@@ -286,6 +292,118 @@ Page({
   onStopIndustryTask() {
     this._stopFlag = true;
     this.setData({ _stopFlag: true, 'industryTask.running': false, 'industryTask.log': '正在停止...' });
+  },
+
+  // ═══════ 已清理数据（持仓删除后保留的交易，可恢复）═══════
+
+  /** 打开「已清理数据」面板 */
+  async onOpenCleared() {
+    this.setData({ 'clearedPanel.show': true, 'clearedPanel.loading': true, 'clearedPanel.groups': [] });
+    await this.loadClearedData();
+  },
+
+  /** 关闭面板 */
+  onCloseCleared() {
+    this.setData({ 'clearedPanel.show': false });
+  },
+
+  /** 查询所有 holding_deleted:true 的交易，按 (account,product) 分组 */
+  async loadClearedData() {
+    try {
+      const db = wx.cloud.database();
+      // 拉取账户名映射
+      let accMap = {};
+      try {
+        const accRes = await db.collection('accounts').get();
+        (accRes.data || []).forEach(a => { accMap[a._id] = a.name || '未命名'; });
+      } catch (e) {}
+
+      // 查询被标记为 holding_deleted 的交易（客户端单次最多 100 条）
+      const res = await db.collection('transactions')
+        .where({ holding_deleted: true })
+        .orderBy('trade_date', 'desc')
+        .limit(100)
+        .get();
+      const txns = res.data || [];
+
+      // 按 (account_id, product_code) 分组
+      const groupMap = {};
+      for (const t of txns) {
+        const key = (t.account_id || '') + '|' + (t.product_code || '');
+        if (!groupMap[key]) {
+          groupMap[key] = {
+            account_id: t.account_id || '',
+            product_code: t.product_code || '',
+            product_name: t.product_name || t.product_code || '未知',
+            account_name: accMap[t.account_id] || '未知账户',
+            count: 0,
+            latest_date: '',
+            txnIds: [],
+          };
+        }
+        const g = groupMap[key];
+        g.count++;
+        g.txnIds.push(t._id);
+        if (t.trade_date && t.trade_date > g.latest_date) {
+          g.latest_date = t.trade_date;
+        }
+      }
+      const groups = Object.values(groupMap).sort((a, b) => b.latest_date.localeCompare(a.latest_date));
+      this.setData({ 'clearedPanel.groups': groups, 'clearedPanel.loading': false });
+    } catch (err) {
+      console.error('[Cleared] load error:', err);
+      this.setData({ 'clearedPanel.loading': false });
+      wx.showToast({ title: '加载失败', icon: 'none' });
+    }
+  },
+
+  /** 恢复一组已清理的交易：取消 holding_deleted 标记 → 重建持仓 */
+  onRestoreCleared(e) {
+    const idx = e.currentTarget.dataset.index;
+    const group = this.data.clearedPanel.groups[idx];
+    if (!group) return;
+
+    wx.showModal({
+      title: '确认恢复',
+      content: `将恢复「${group.product_name}」（${group.account_name}）的 ${group.count} 笔交易并重建持仓？`,
+      success: async (res) => {
+        if (!res.confirm) return;
+        wx.showLoading({ title: '恢复中...', mask: true });
+        try {
+          const db = wx.cloud.database();
+          // 1. 取消 holding_deleted 标记
+          for (const tid of group.txnIds) {
+            try {
+              await db.collection('transactions').doc(tid).update({
+                data: { holding_deleted: false, updated_at: db.serverDate() },
+              });
+            } catch (e) {
+              console.warn('[Cleared] unmark txn failed:', tid, e);
+            }
+          }
+          // 2. 重建该 product 的持仓
+          try {
+            await wx.cloud.callFunction({
+              name: 'rebuild_holdings',
+              data: { account_id: group.account_id, product_code: group.product_code },
+            });
+          } catch (e) {
+            console.warn('[Cleared] rebuild failed:', e);
+          }
+          // 3. 从面板移除该组
+          const newGroups = this.data.clearedPanel.groups.filter((_, i) => i !== idx);
+          this.setData({ 'clearedPanel.groups': newGroups });
+          wx.hideLoading();
+          wx.showToast({ title: '已恢复', icon: 'success' });
+          // 4. 刷新持仓列表
+          this.loadData();
+        } catch (err) {
+          wx.hideLoading();
+          wx.showToast({ title: '恢复失败', icon: 'none' });
+          console.error('[Cleared] restore error:', err);
+        }
+      },
+    });
   },
 
   tagClass(type) {

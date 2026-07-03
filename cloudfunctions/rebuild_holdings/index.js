@@ -78,14 +78,26 @@ async function fetchAll(collection, where) {
 exports.main = async (event) => {
   const { account_id, product_code } = event || {};
 
+  // 获取 openid，用于持仓隔离与创建
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext.OPENID || '';
+
   try {
     // 1. 构建查询条件
     const where = {};
     if (account_id) where.account_id = account_id;
     if (product_code) where.product_code = product_code;
+    // 按用户隔离查询交易记录，避免跨用户回放
+    if (openid) where._openid = openid;
 
     // 2. 拉取全部交易（按日期升序回放）
     let txns = await fetchAll('transactions', Object.keys(where).length ? where : null);
+
+    // 过滤掉「持仓已删除」标记的交易（用户在持仓详情页删除持仓时，
+    // 对应交易会被标记 holding_deleted:true 作为软删除；这些交易不应参与回放，
+    // 否则用户删除持仓后再导入同一股票，旧交易会污染新持仓。
+    // 这些交易仍保留在 DB 中，可通过「已清理数据」入口恢复）
+    txns = txns.filter(t => !t.holding_deleted);
 
     // 排序：trade_date asc, created_at asc
     txns.sort((a, b) => {
@@ -181,20 +193,25 @@ exports.main = async (event) => {
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓（拉取全部，处理重复持仓）
-      const existRes = await db.collection('holdings').where({
-        account_id: h.account_id,
-        product_code: h.product_code,
-      }).get();
+      // 查询现有持仓（拉取全部，处理重复持仓），按 _openid 隔离
+      const existWhere = { account_id: h.account_id, product_code: h.product_code };
+      if (openid) existWhere._openid = openid;
+      const existRes = await db.collection('holdings').where(existWhere).get();
       const existList = (existRes && existRes.data) || [];
 
       // 用现有持仓的 current_price 重算 market_value / pnl / total_pnl，避免重建后还要刷行情才同步
-      const curPrice = existList.length > 0 ? (Number(existList[0].current_price) || 0) : h.cost_price;
+      // 优先取 updated_at 最新的那条（避免取到脏数据）
+      const sortedExisting = existList.slice().sort((a, b) => {
+        const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return tb - ta;
+      });
+      const curPrice = sortedExisting.length > 0 ? (Number(sortedExisting[0].current_price) || 0) : h.cost_price;
       const marketValue = Number((h.shares * curPrice).toFixed(2));
       const pnl = Number((marketValue - h.cost_value).toFixed(2));
       const pnlPercent = h.cost_value > 0 ? Number(((pnl / h.cost_value) * 100).toFixed(2)) : 0;
-      // 总收益 = 浮动 + 已实现 + 分红 - 手续费（同花顺口径）
-      const totalPnl = Number((pnl + h.realized_pnl + h.total_dividend - h.total_fee).toFixed(2));
+      // 总收益 = 浮动 + 已实现 + 分红（同花顺口径，手续费已计入 cost_value/realized）
+      const totalPnl = Number((pnl + h.realized_pnl + h.total_dividend).toFixed(2));
 
       const updateData = {
         shares: h.shares,
@@ -214,24 +231,38 @@ exports.main = async (event) => {
       };
 
       let survivingId = '';
-      if (existList.length > 0) {
-        // 保留第一条，更新份额/成本/累计字段 + 即时重算 market_value/pnl/total_pnl
-        survivingId = existList[0]._id;
-        await db.collection('holdings').doc(existList[0]._id).update({ data: updateData });
-        // 清理历史重复持仓（同 account_id + product_code 的多余 doc），修复「语音录入生成两个重复持仓」
-        if (existList.length > 1) {
-          for (let k = 1; k < existList.length; k++) {
-            try {
-              await db.collection('holdings').doc(existList[k]._id).remove();
-              deduped++;
-            } catch (e) {
-              console.warn('[rebuild_holdings] dedup remove failed:', e);
-            }
+      if (sortedExisting.length > 0) {
+        // 保留最新的一条更新，合并其余持仓的累计字段（防御性，避免丢已实现/分红）
+        const base = sortedExisting[0];
+        let accRealized = Number(updateData.realized_pnl) || 0;
+        let accDividend = Number(updateData.total_dividend) || 0;
+        let accFee = Number(updateData.total_fee) || 0;
+        for (let k = 1; k < sortedExisting.length; k++) {
+          accRealized += Number(sortedExisting[k].realized_pnl) || 0;
+          accDividend += Number(sortedExisting[k].total_dividend) || 0;
+          accFee += Number(sortedExisting[k].total_fee) || 0;
+        }
+        updateData.realized_pnl = Number(accRealized.toFixed(2));
+        updateData.total_dividend = Number(accDividend.toFixed(2));
+        updateData.total_fee = Number(accFee.toFixed(2));
+        // 重算 total_pnl（合并后累计字段变化）
+        updateData.total_pnl = Number((pnl + updateData.realized_pnl + updateData.total_dividend).toFixed(2));
+
+        survivingId = base._id;
+        await db.collection('holdings').doc(base._id).update({ data: updateData });
+        // 删除多余的重复持仓（合并后已安全删除）
+        for (let k = 1; k < sortedExisting.length; k++) {
+          try {
+            await db.collection('holdings').doc(sortedExisting[k]._id).remove();
+            deduped++;
+          } catch (e) {
+            console.warn('[rebuild_holdings] dedup remove failed:', e);
           }
         }
       } else {
         // 新建（product_type/exchange 在交易缺类型时按代码推断兜底）
         const newHolding = Object.assign({}, updateData, {
+          _openid: openid,
           account_id: h.account_id,
           product_code: h.product_code,
           product_type: h.product_type || inferProductType(h.product_code) || '',

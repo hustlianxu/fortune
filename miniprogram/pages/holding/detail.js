@@ -266,8 +266,10 @@ Page({
         .orderBy('trade_date', 'asc')
         .orderBy('created_at', 'asc')
         .get();
+      // 过滤掉「持仓已删除」标记的交易（软删除的交易不参与展示和回放校验）
+      const txns = (res.data || []).filter(t => !t.holding_deleted);
       this.setData({
-        transactions: res.data || [],
+        transactions: txns,
         loadingTxns: false,
       });
     } catch (err) {
@@ -558,18 +560,39 @@ Page({
   },
 
   onDelete() {
+    const h = this.data.holding;
     wx.showModal({
       title: '确认删除',
-      content: `删除 ${this.data.holding.product_name} 的持仓记录？`,
+      content: `删除 ${h.product_name} 的持仓记录？\n\n交易记录会保留（标记为"持仓已删除"），之后可通过「重建」恢复。`,
       success: async (res) => {
-        if (res.confirm) {
+        if (!res.confirm) return;
+        wx.showLoading({ title: '删除中...', mask: true });
+        try {
+          // 1. 物理删除持仓 doc（可从交易记录重建恢复）
+          await db.collection('holdings').doc(h._id).remove();
+          // 2. 关联标记该 (account_id, product_code) 的交易记录 holding_deleted: true
+          //    交易记录本身不删除，保留作为恢复的"真相来源"
           try {
-            await db.collection('holdings').doc(this.data.holding._id).remove();
-            wx.showToast({ title: '已删除', icon: 'success' });
-            setTimeout(() => wx.navigateBack(), 1000);
-          } catch (err) {
-            wx.showToast({ title: '删除失败', icon: 'none' });
+            const txnRes = await db.collection('transactions')
+              .where({ account_id: h.account_id, product_code: h.product_code })
+              .get();
+            const txns = (txnRes && txnRes.data) || [];
+            for (const t of txns) {
+              try {
+                await db.collection('transactions').doc(t._id).update({
+                  data: { holding_deleted: true, updated_at: db.serverDate() },
+                });
+              } catch (e) {}
+            }
+          } catch (e) {
+            console.warn('[onDelete] mark transactions holding_deleted failed:', e);
           }
+          wx.hideLoading();
+          wx.showToast({ title: '已删除，可重建恢复', icon: 'success' });
+          setTimeout(() => wx.navigateBack(), 1200);
+        } catch (err) {
+          wx.hideLoading();
+          wx.showToast({ title: '删除失败', icon: 'none' });
         }
       },
     });

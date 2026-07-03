@@ -8,6 +8,7 @@
       <view class="top-actions">
         <text class="top-btn" bindtap="onGoAnalysis">📊 多维分析</text>
         <text class="top-btn" bindtap="onOpenIndustryTask">🏷 刷新行业</text>
+        <text class="top-btn" bindtap="onOpenCleared">♻ 已清理</text>
         <text class="top-btn" bindtap="onToggleHideCleared">{{hideCleared ? '☑' : '☐'}} 隐藏清仓</text>
       </view>
     </view>
@@ -52,6 +53,38 @@
       <button class="it-btn it-btn-stop" wx:if="{{industryTask.running}}" bindtap="onStopIndustryTask">停止</button>
       <button class="it-btn it-btn-ghost" bindtap="onCloseIndustryTask">{{industryTask.running ? '后台运行' : '关闭'}}</button>
     </view>
+  </view>
+
+  <!-- ═══════ 已清理数据面板（持仓删除后保留的交易，可恢复）═══════ -->
+  <view class="industry-task-mask" wx:if="{{clearedPanel.show}}" bindtap="onCloseCleared"></view>
+  <view class="industry-task-panel cleared-panel" wx:if="{{clearedPanel.show}}" catchtap="">
+    <view class="it-header">
+      <text class="it-title">♻ 已清理数据</text>
+      <text class="it-close" bindtap="onCloseCleared">✕</text>
+    </view>
+    <view class="it-desc">
+      删除持仓时，对应交易记录会保留（标记为"持仓已删除"）作为恢复来源。
+      点击「恢复」可取消标记并重建持仓。
+    </view>
+
+    <view class="cleared-loading" wx:if="{{clearedPanel.loading}}">加载中...</view>
+
+    <scroll-view scroll-y class="cleared-list" wx:if="{{!clearedPanel.loading}}">
+      <view class="cleared-empty" wx:if="{{clearedPanel.groups.length === 0}}">
+        暂无已清理数据
+      </view>
+      <view class="cleared-item" wx:for="{{clearedPanel.groups}}" wx:key="product_code" wx:for-index="gidx">
+        <view class="cleared-item-info">
+          <view class="cleared-item-name">{{item.product_name}}</view>
+          <view class="cleared-item-meta">
+            <text>{{item.account_name}}</text>
+            <text> · {{item.count}} 笔</text>
+            <text> · 最近 {{item.latest_date}}</text>
+          </view>
+        </view>
+        <button class="cleared-restore-btn" size="mini" bindtap="onRestoreCleared" data-index="{{gidx}}">恢复</button>
+      </view>
+    </scroll-view>
   </view>
 
   <!-- ═══════ 策略汇总卡片 ═══════ -->

@@ -330,6 +330,17 @@ Page({
             if (res.deduped) {
               content = '本次导入已存在，未重复写入（已自动跳过）';
             }
+            // 明确区分「交易写入数」和「持仓应用数」，让用户知道持仓是否已同步
+            if (!res.deduped && res.imported > 0) {
+              const appliedCount = res.applied;
+              if (typeof appliedCount === 'number') {
+                if (appliedCount > 0) {
+                  content = `✓ 已写入 ${res.imported} 笔交易，已更新 ${appliedCount} 个持仓`;
+                } else {
+                  content = `✓ 已写入 ${res.imported} 笔交易，但持仓未自动更新。请到持仓详情页点「重建」修复。`;
+                }
+              }
+            }
             if (res.warnings && res.warnings.length > 0) {
               content += '\n\n注意事项：\n' + res.warnings.slice(0, 5).map(w => '• ' + w).join('\n');
             }

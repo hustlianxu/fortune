@@ -364,15 +364,16 @@ async function postProcessTrades(trades, account_id, warnings) {
 }
 
 /**
- * 写入一笔交易并应用到持仓
+ * 写入一笔交易（不应用持仓，持仓应用由批量 rebuild 统一处理）
  * - buy/sell/dividend/interest 需产品代码，缺失则抛错（不写入，避免脏数据）
  * - buy 计算 is_opening（首次建仓）
- * - buy/sell/dividend/interest 调 apply_transaction 应用到持仓，失败仅预警（交易已记录，可重建修复）
- * - transfer_in/transfer_out/fee 仅记录
+ * - 写入 _openid 确保小程序端可见
+ * - 不再每笔调用 apply_transaction，改为批量写完后统一 rebuild_holdings，
+ *   避免 N 次嵌套调用导致的并发竞争和"持仓人间蒸发"
  */
 const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
 
-async function importTrade(trade, account_id, warnings, request_id) {
+async function importTrade(trade, account_id, warnings, request_id, openid) {
   const type = trade.type;
   // 影响持仓的交易必须有产品代码
   if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
@@ -383,13 +384,17 @@ async function importTrade(trade, account_id, warnings, request_id) {
   let isOpening = false;
   if (type === 'buy') {
     try {
+      const holdWhere = { account_id, product_code: trade.product_code };
+      if (openid) holdWhere._openid = openid;
       const existHolding = await db.collection('holdings')
-        .where({ account_id, product_code: trade.product_code })
+        .where(holdWhere)
         .limit(1).get();
       const hasHolding = existHolding.data && existHolding.data.length > 0;
       if (!hasHolding) {
+        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy' };
+        if (openid) txnWhere._openid = openid;
         const existBuy = await db.collection('transactions')
-          .where({ account_id, product_code: trade.product_code, type: 'buy' })
+          .where(txnWhere)
           .limit(1).get();
         const hasBuy = existBuy.data && existBuy.data.length > 0;
         isOpening = !hasBuy;
@@ -400,6 +405,7 @@ async function importTrade(trade, account_id, warnings, request_id) {
   }
 
   const data = {
+    _openid: openid || '',
     account_id,
     type,
     product_code: trade.product_code || '',
@@ -420,30 +426,6 @@ async function importTrade(trade, account_id, warnings, request_id) {
   // 写入导入幂等 key，便于双击/重试时识别重复提交
   if (request_id) data.import_request_id = request_id;
   const addRes = await db.collection('transactions').add({ data });
-
-  if (HOLDING_AFFECTING.indexOf(type) >= 0) {
-    // 调 apply_transaction 应用到持仓（幂等）
-    try {
-      const res = await cloud.callFunction({
-        name: 'apply_transaction',
-        data: { transaction_id: addRes._id },
-      });
-      const result = res && res.result;
-      if (!result || !result.success) {
-        const msg = (result && result.message) || '应用持仓失败';
-        warnings.push(`「${trade.product_name || trade.product_code}」已记录但未应用到持仓：${msg}（可在持仓详情页「重建」修复）`);
-      }
-    } catch (e) {
-      warnings.push(`「${trade.product_name || trade.product_code}」已记录但应用到持仓异常：${e.message}（可在持仓详情页「重建」修复）`);
-    }
-  } else {
-    // 转账/手续费类不影响持仓，直接标记已应用
-    try {
-      await db.collection('transactions').doc(addRes._id).update({
-        data: { applied_holding: true, applied_at: db.serverDate() },
-      });
-    } catch (e) {}
-  }
   return addRes._id;
 }
 
@@ -599,13 +581,58 @@ exports.main = async (event) => {
     }
 
     // ============ 3. 实际写入 ============
+    // 获取 openid，用于写入 transaction._openid 和后续 rebuild 隔离
+    const wxCtx = cloud.getWXContext();
+    const openid = wxCtx.OPENID || '';
+
     let imported = 0;
+    const affectedProducts = new Set();  // 收集受影响的 product_code，用于批量 rebuild
     for (let i = 0; i < trades.length; i++) {
       try {
-        await importTrade(trades[i], account_id, warnings, request_id);
+        await importTrade(trades[i], account_id, warnings, request_id, openid);
         imported++;
+        if (trades[i].product_code && HOLDING_AFFECTING.indexOf(trades[i].type) >= 0) {
+          affectedProducts.add(trades[i].product_code);
+        }
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);
+      }
+    }
+
+    // ============ 4. 批量重建受影响的持仓 ============
+    // 不再每笔交易调 apply_transaction（N 次嵌套调用有并发竞争风险），
+    // 改为对每个受影响的 product_code 调一次 rebuild_holdings（幂等，全量回放），
+    // 一次性把该股票的所有交易回放重建持仓，彻底避免"持仓人间蒸发"
+    let rebuilt = 0;
+    const rebuildErrors = [];
+    for (const code of affectedProducts) {
+      try {
+        const rebuildRes = await cloud.callFunction({
+          name: 'rebuild_holdings',
+          data: { account_id, product_code: code },
+        });
+        const rr = rebuildRes && rebuildRes.result;
+        if (rr && rr.success) {
+          rebuilt++;
+        } else {
+          rebuildErrors.push(`${code}: ${(rr && rr.message) || '未知错误'}`);
+        }
+      } catch (e) {
+        rebuildErrors.push(`${code}: ${e.message}`);
+      }
+    }
+
+    // 区分"交易写入数"和"持仓应用数"，给前端准确反馈
+    let message = `成功导入 ${imported} 笔交易`;
+    if (affectedProducts.size > 0) {
+      if (rebuilt === affectedProducts.size) {
+        message += `，${rebuilt} 个持仓已更新`;
+      } else if (rebuilt > 0) {
+        message += `，${rebuilt}/${affectedProducts.size} 个持仓已更新`;
+        rebuildErrors.forEach(e => warnings.push(`持仓重建失败：${e}（可在持仓详情页手动「重建」修复）`));
+      } else {
+        message += `（持仓未更新，可在持仓详情页手动「重建」修复）`;
+        rebuildErrors.forEach(e => warnings.push(`持仓重建失败：${e}（可在持仓详情页手动「重建」修复）`));
       }
     }
 
@@ -614,7 +641,8 @@ exports.main = async (event) => {
       trades,
       warnings,
       imported,
-      message: `成功导入 ${imported} 笔交易`,
+      applied: rebuilt,
+      message,
     };
   } catch (err) {
     console.error('[parse_trades_by_text] error:', err);
