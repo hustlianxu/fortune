@@ -347,6 +347,26 @@ async function callLLM(provider, apiKey, messages, model) {
 }
 
 /**
+ * 带重试的 LLM 调用（指数退避，默认重试 2 次）
+ * 瞬时错误（网络抖动、API 限流）自动重试，提高多模型分析的稳定性
+ */
+async function callLLMWithRetry(provider, apiKey, messages, model, retries) {
+  const max = typeof retries === 'number' ? retries : 2;
+  let lastErr;
+  for (let attempt = 0; attempt <= max; attempt++) {
+    try {
+      return await callLLM(provider, apiKey, messages, model);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < max) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * 给单次 LLM 调用套一层超时包装
  * @param {number} timeoutMs - 超时毫秒数
  * @returns {Promise<{content:string, timedOut:boolean}>}
@@ -391,7 +411,7 @@ async function callAnalystSafely(provider, cfg, messages, timeoutMs) {
   // 注意：callLLM 直接 resolve 为字符串，withTimeout 会将其包成 { content, timedOut }
   // 切勿在 callLLM 后再 .then 包对象，否则 content 会变成嵌套对象，导致 parseAnalysisResult 报 content.match is not a function
   const { content, timedOut, error } = await withTimeout(
-    callLLM(provider, apiKey, messages, model),
+    callLLMWithRetry(provider, apiKey, messages, model),
     effectiveTimeout
   );
   return {

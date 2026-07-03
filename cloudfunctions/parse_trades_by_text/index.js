@@ -444,6 +444,11 @@ exports.main = async (event) => {
     return { success: false, message: '缺少 account_id（请先选择目标账户）' };
   }
 
+  // 当前调用者 openid：用于数据隔离 + 写入归属。
+  // 在 main 开头获取，确保 text/json 两种模式都能使用。
+  const wxCtx = cloud.getWXContext();
+  const openid = wxCtx.OPENID || '';
+
   const warnings = [];
   let trades = [];
 
@@ -499,9 +504,7 @@ exports.main = async (event) => {
         return { success: false, message: '请输入要解析的文字', trades: [], warnings: [] };
       }
 
-      // 读取用户 LLM 配置（按 openid 隔离）
-      const wxCtx = cloud.getWXContext();
-      const openid = wxCtx.OPENID || '';
+      // 读取用户 LLM 配置（按 openid 隔离，openid 已在 main 开头获取）
       const cfgQuery = openid ? { _openid: openid } : {};
       const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
       const userConfig = configs[0];
@@ -581,9 +584,7 @@ exports.main = async (event) => {
     }
 
     // ============ 3. 实际写入 ============
-    // 获取 openid，用于写入 transaction._openid 和后续 rebuild 隔离
-    const wxCtx = cloud.getWXContext();
-    const openid = wxCtx.OPENID || '';
+    // openid 已在 main 开头获取
 
     let imported = 0;
     const affectedProducts = new Set();  // 收集受影响的 product_code，用于批量 rebuild
@@ -609,7 +610,7 @@ exports.main = async (event) => {
       try {
         const rebuildRes = await cloud.callFunction({
           name: 'rebuild_holdings',
-          data: { account_id, product_code: code },
+          data: { account_id, product_code: code, openid },  // 显式传 openid，避免云函数间调用时身份丢失
         });
         const rr = rebuildRes && rebuildRes.result;
         if (rr && rr.success) {

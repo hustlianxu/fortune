@@ -129,8 +129,10 @@ exports.main = async (event) => {
   }
 
   // 获取 openid，用于持仓隔离与写入
+  // 优先使用调用方显式传入的 openid（云函数间调用时 getWXContext 可能拿不到用户身份），
+  // 回退到 getWXContext().OPENID（小程序端直接调用时自动注入）
   const wxContext = cloud.getWXContext();
-  const openid = wxContext.OPENID || '';
+  const openid = (event && event.openid) || wxContext.OPENID || '';
 
   try {
     // 1. 读取交易
