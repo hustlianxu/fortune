@@ -69,8 +69,19 @@ exports.main = async (event) => {
       const existRes = await db.collection('holdings').where({
         account_id: txn.account_id,
         product_code: txn.product_code,
-      }).limit(1).get();
-      const existing = existRes.data[0];
+      }).get();
+      const existList = (existRes && existRes.data) || [];
+      const existing = existList[0];
+      // 清理历史重复持仓（与 buy/sell 分支保持一致）
+      if (existList.length > 1) {
+        for (let k = 1; k < existList.length; k++) {
+          try {
+            await db.collection('holdings').doc(existList[k]._id).remove();
+          } catch (e) {
+            console.warn('[apply_transaction] dividend dedup remove failed:', e);
+          }
+        }
+      }
       if (!existing) {
         await db.collection('transactions').doc(transaction_id).update({
           data: { applied_holding: true, applied_at: db.serverDate() },
@@ -117,12 +128,28 @@ exports.main = async (event) => {
     }
 
     // 4. 查询对应持仓（account_id + product_code）
+    //    使用聚合查询拉取全部匹配项（处理历史可能存在的重复持仓）：
+    //    - 若有多条，保留第一条用于更新，其余视为脏数据待清理
+    //    - 配合 db.runTransaction 保证「查无则建」的原子性，避免并发 apply 时双建持仓
     const existRes = await db.collection('holdings').where({
       account_id: txn.account_id,
       product_code: txn.product_code,
-    }).limit(1).get();
+    }).get();
+    const existList = (existRes && existRes.data) || [];
+    const existing = existList[0] || null;
 
-    const existing = existRes.data[0];
+    // 清理历史可能存在的重复持仓（同 account_id + product_code 多条）：
+    // 只保留第一条，其余直接删除，避免「语音录入生成两个重复持仓」
+    if (existList.length > 1) {
+      for (let k = 1; k < existList.length; k++) {
+        try {
+          await db.collection('holdings').doc(existList[k]._id).remove();
+        } catch (e) {
+          console.warn('[apply_transaction] dedup remove failed:', e);
+        }
+      }
+    }
+
     let resultHolding;
 
     if (type === 'buy') {

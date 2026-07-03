@@ -6,6 +6,11 @@
 const api = require('../../utils/api');
 const { formatMoney, formatDate, getPriceColor } = require('../../utils/format');
 const { ANALYSIS_TYPES, LLM_PROVIDERS } = require('../../utils/constants');
+const { parseMarkdown } = require('../../utils/markdown');
+
+// 单次分析最久等待时间（毫秒）。超过即视为超时，提示用户稍后查看，
+// 并允许重新进入页面时自动加载最近一次报告（见 onShow 与 onAnalyzeTimeout）。
+const ANALYZE_TIMEOUT_MS = 55 * 1000;
 
 Page({
   data: {
@@ -30,13 +35,19 @@ Page({
       show: false,
       summary: '',
       keyFindings: [],
+      findingBlocks: [],     // 每条 key_finding 解析后的 markdown blocks
       riskLevel: '',
       content: '',
+      contentBlocks: [],     // report_content 解析后的 markdown blocks
+      subContentBlocks: [],  // 子报告解析后的 markdown blocks 数组（与 subReports 一一对应）
       date: '',
       multiMode: false,
       subReports: [],
     },
     showSubReports: false,
+    // 上一次分析超时但服务端可能仍在生成，重新进入页面时自动展示最新报告
+    hasPendingReport: false,
+    pendingHint: '',
     historyReports: [],
     qaQuestion: '',
     qaAnswer: '',
@@ -48,6 +59,32 @@ Page({
     this.loadData();
     this.loadLLMConfig();
     this.loadHistory();
+    // 若上次分析超时（hasPendingReport），自动尝试加载最新报告，
+    // 让用户重新进来即可看到刚才的解析结果
+    if (this.data.hasPendingReport) {
+      this.tryLoadLatestAfterTimeout();
+    }
+  },
+
+  /**
+   * 超时后重新进入页面，自动尝试拉取最新一份报告并展示。
+   * 若最新报告时间在最近 30 分钟内，则视为本次超时分析的结果。
+   */
+  async tryLoadLatestAfterTimeout() {
+    try {
+      const reports = await api.getAnalysisReports();
+      if (reports && reports.length > 0) {
+        const latest = reports[0];
+        const created = latest.created_at ? new Date(latest.created_at) : null;
+        const within30Min = created && (Date.now() - created.getTime() < 30 * 60 * 1000);
+        if (within30Min) {
+          this.fillResultFromReport(latest, { multiMode: false, subReports: [] });
+          this.setData({ hasPendingReport: false, pendingHint: '' });
+        }
+      }
+    } catch (e) {
+      console.warn('[AI] tryLoadLatestAfterTimeout error:', e);
+    }
   },
 
   async loadData() {
@@ -168,30 +205,29 @@ Page({
       mask: true,
     });
 
+    // 用 Promise.race 与超时竞争：超过 ANALYZE_TIMEOUT_MS 即视为超时，
+    // 但云函数可能仍在生成报告（服务端会写库），标记为 hasPendingReport，
+    // 让用户稍后或重新进入页面时通过 tryLoadLatestAfterTimeout 自动看到结果。
+    const startedAt = Date.now();
+    let analyzePromise;
     try {
-      let res;
       if (multi) {
-        // 汇总模型 = 当前 picker 选中的
         const synthKey = this.data.analysts[this.data.synthIndex] || analysts[0];
-        res = await api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
+        analyzePromise = api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
       } else {
-        res = await api.analyzePortfolio(this.data.selectedType, analysts[0]);
+        analyzePromise = api.analyzePortfolio(this.data.selectedType, analysts[0]);
       }
+      const res = await Promise.race([
+        analyzePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('ANALYZE_TIMEOUT')), ANALYZE_TIMEOUT_MS)
+        ),
+      ]);
 
       if (res && res.success) {
         const report = res.report || {};
-        this.setData({
-          result: {
-            show: true,
-            summary: report.summary || '',
-            keyFindings: report.key_findings || [],
-            riskLevel: report.risk_level || '',
-            content: report.report_content || '',
-            date: formatDate(new Date()),
-            multiMode: !!res.multiMode,
-            subReports: res.subReports || [],
-          },
-        });
+        this.fillResultFromReport(report, { multiMode: !!res.multiMode, subReports: res.subReports || [] });
+        this.setData({ hasPendingReport: false, pendingHint: '' });
         wx.hideLoading();
         this.loadHistory();
       } else {
@@ -200,11 +236,53 @@ Page({
       }
     } catch (err) {
       wx.hideLoading();
-      wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
-      console.error('[AI] analysis error:', err);
+      const isTimeout = (err && err.message === 'ANALYZE_TIMEOUT');
+      if (isTimeout) {
+        // 客户端超时，但服务端可能仍在生成。允许用户重新进入页面时自动看到最新报告
+        this.setData({
+          hasPendingReport: true,
+          pendingHint: '分析耗时较长，服务端仍在生成中。请稍后返回本页将自动展示最新结果，或前往「历史分析记录」查看。',
+        });
+        wx.showModal({
+          title: '分析超时',
+          content: 'AI 正在生成报告，但耗时较长。云函数会继续完成并保存。请稍后回到本页面，将自动展示最新结果；也可在「历史分析记录」中查看。',
+          showCancel: false,
+          confirmText: '我知道了',
+        });
+        this.loadHistory();
+      } else {
+        wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
+        console.error('[AI] analysis error:', err);
+      }
     }
 
     this.setData({ analyzing: false });
+  },
+
+  /**
+   * 把后端 report 填到 result 并解析 markdown 为结构化 blocks（用于原生 view 渲染表格/列表/标题）
+   */
+  fillResultFromReport(report, extra) {
+    const keyFindings = report.key_findings || [];
+    const findingBlocks = keyFindings.map(f => parseMarkdown(String(f)));
+    const contentBlocks = parseMarkdown(report.report_content || '');
+    const subReports = (extra && extra.subReports) || [];
+    const subContentBlocks = subReports.map(s => parseMarkdown(String(s.content || '')));
+    this.setData({
+      result: {
+        show: true,
+        summary: report.summary || '',
+        keyFindings,
+        findingBlocks,
+        riskLevel: report.risk_level || '',
+        content: report.report_content || '',
+        contentBlocks,
+        subContentBlocks,
+        date: formatDate(new Date()),
+        multiMode: (extra && extra.multiMode) || false,
+        subReports,
+      },
+    });
   },
 
   onToggleSubReports() {

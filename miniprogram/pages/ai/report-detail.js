@@ -3,11 +3,13 @@
  */
 const { formatDate } = require('../../utils/format');
 const { ANALYSIS_TYPES } = require('../../utils/constants');
+const { parseMarkdown } = require('../../utils/markdown');
 
 Page({
   data: {
     report: {},
-    reportContent: '',
+    contentBlocks: [],     // report_content 解析后的结构化 blocks
+    findingBlocks: [],     // key_findings 每项解析后的 blocks
   },
 
   onLoad(options) {
@@ -30,15 +32,16 @@ Page({
       };
       report.riskClass = riskMap[report.risk_level] || 'steady';
 
-      // 将 report_content 转义为 rich-text 可用格式
-      const content = (report.report_content || '')
-        .replace(/\n/g, '<br/>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/【(.*?)】/g, '<strong style="color:#6c63ff">[$1]</strong>');
+      // 将 report_content 解析为结构化 blocks（表格/列表/标题/段落），
+      // 用原生 view 渲染，表格才能正常显示，且暗黑模式字体颜色自动适配
+      const contentBlocks = parseMarkdown(report.report_content || '');
+      // key_findings 每条也可能含 markdown，统一解析
+      const findingBlocks = (report.key_findings || []).map(f => parseMarkdown(String(f)));
 
       this.setData({
         report,
-        reportContent: content,
+        contentBlocks,
+        findingBlocks,
       });
     } catch (err) {
       console.error('[Report Detail] error:', err);

@@ -140,15 +140,25 @@ exports.main = async (event) => {
     // 4. upsert 到 holdings
     let rebuilt = 0;
     let cleared = 0;
+    let deduped = 0;
     const keys = Object.keys(holdingsMap);
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓
+      // 查询现有持仓（拉取全部，处理重复持仓）
       const existRes = await db.collection('holdings').where({
         account_id: h.account_id,
         product_code: h.product_code,
-      }).limit(1).get();
+      }).get();
+      const existList = (existRes && existRes.data) || [];
+
+      // 用现有持仓的 current_price 重算 market_value / pnl / total_pnl，避免重建后还要刷行情才同步
+      const curPrice = existList.length > 0 ? (Number(existList[0].current_price) || 0) : h.cost_price;
+      const marketValue = Number((h.shares * curPrice).toFixed(2));
+      const pnl = Number((marketValue - h.cost_value).toFixed(2));
+      const pnlPercent = h.cost_value > 0 ? Number(((pnl / h.cost_value) * 100).toFixed(2)) : 0;
+      // 总收益 = 浮动 + 已实现 + 分红 - 手续费（同花顺口径）
+      const totalPnl = Number((pnl + h.realized_pnl + h.total_dividend - h.total_fee).toFixed(2));
 
       const updateData = {
         shares: h.shares,
@@ -160,13 +170,27 @@ exports.main = async (event) => {
         realized_pnl: h.realized_pnl,
         total_dividend: h.total_dividend,
         total_fee: h.total_fee,
+        market_value: marketValue,
+        pnl: pnl,
+        pnl_percent: pnlPercent,
+        total_pnl: totalPnl,
         updated_at: db.serverDate(),
       };
 
-      if (existRes.data.length > 0) {
-        // 保留现有的 current_price/market_value 等行情字段，仅更新份额/成本/累计字段
-        // total_pnl 等行情刷新时由 sync_prices 重算
-        await db.collection('holdings').doc(existRes.data[0]._id).update({ data: updateData });
+      if (existList.length > 0) {
+        // 保留第一条，更新份额/成本/累计字段 + 即时重算 market_value/pnl/total_pnl
+        await db.collection('holdings').doc(existList[0]._id).update({ data: updateData });
+        // 清理历史重复持仓（同 account_id + product_code 的多余 doc），修复「语音录入生成两个重复持仓」
+        if (existList.length > 1) {
+          for (let k = 1; k < existList.length; k++) {
+            try {
+              await db.collection('holdings').doc(existList[k]._id).remove();
+              deduped++;
+            } catch (e) {
+              console.warn('[rebuild_holdings] dedup remove failed:', e);
+            }
+          }
+        }
       } else {
         // 新建
         const newHolding = Object.assign({}, updateData, {
@@ -174,11 +198,7 @@ exports.main = async (event) => {
           product_code: h.product_code,
           product_type: h.product_type,
           exchange: h.exchange,
-          current_price: h.cost_price,
-          market_value: Number((h.shares * h.cost_price).toFixed(2)),
-          pnl: 0,
-          pnl_percent: 0,
-          total_pnl: 0,
+          current_price: curPrice,
           daily_change: 0,
           note: '',
           created_at: db.serverDate(),
@@ -206,9 +226,10 @@ exports.main = async (event) => {
 
     return {
       success: true,
-      message: `重建完成：${rebuilt} 个持仓，${cleared} 个已清仓，标记 ${marked} 笔交易`,
+      message: `重建完成：${rebuilt} 个持仓，${cleared} 个已清仓，清理重复持仓 ${deduped} 个，标记 ${marked} 笔交易`,
       rebuilt,
       cleared,
+      deduped,
       marked,
       totalTxns: txns.length,
     };

@@ -7,22 +7,19 @@
  * 逻辑：
  *   1. 据 TriggerName / pushType 判定早报或晚报，选择对应模板与开关字段。
  *   2. 从 notify_settings 集合读取所有开启该项推送的用户（按 _openid 隔离，云函数具备 admin 权限可读全部）。
- *   3. 取 news_cache 最新资讯，逐用户通过 cloud.openapi.subscribeMessage.send 推送。
- *   4. 单条发送失败不吞错误，记录到 errors；若全部失败则返回 success:false。
+ *   3. 模板 ID 优先取自用户在 notify_settings 中填写的 tmplIds 字段；
+ *      若该用户未填写则跳过该用户并在 errors 中清晰标记原因，避免静默失败。
+ *   4. 取 news_cache 最新资讯，逐用户通过 cloud.openapi.subscribeMessage.send 推送。
+ *   5. 单条发送失败不吞错误，记录到 errors；若全部失败则返回 success:false。
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
-// 订阅消息模板 ID（占位符）
-// 注意：以下为占位符，需在微信公众平台「订阅消息」后台申请真实模板 ID 后替换。
-// 替换后请保证模板的字段（thing1/thing2/time3）与申请到的模板一致，否则推送会失败。
-const TEMPLATE_IDS = {
-  morning: 'YOUR_MORNING_TMPL_ID',
-  evening: 'YOUR_EVENING_TMPL_ID',
-};
-
 const MAX_BATCH = 1000; // 单次 get 上限
+
+// 占位符（仅用于判断用户是否填了真实模板 ID，不再用于实际推送）
+const PLACEHOLDER_HINT = 'YOUR_';
 
 function pad(n) {
   return n < 10 ? '0' + n : '' + n;
@@ -37,7 +34,7 @@ exports.main = async (event) => {
     if (!pushType) pushType = 'morning'; // 默认早报
 
     const enabledField = pushType === 'evening' ? 'eveningNews' : 'morningNews';
-    const templateId = pushType === 'evening' ? TEMPLATE_IDS.evening : TEMPLATE_IDS.morning;
+    const tmplField = pushType === 'evening' ? 'evening' : 'morning';
 
     // 2. 读取所有开启该项推送的用户设置（按 _openid 隔离）
     const settingsRes = await db.collection('notify_settings')
@@ -67,12 +64,26 @@ exports.main = async (event) => {
     const now = new Date();
     const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
-    // 4. 逐用户推送
+    // 4. 逐用户推送（模板 ID 优先从用户配置读取）
     let pushed = 0;
+    let skippedNoTmpl = 0;
     const errors = [];
     for (const setting of targets) {
       const touser = setting._openid;
       if (!touser) continue;
+
+      // 模板 ID 解析：优先用户配置 tmplIds.{tmplField}，缺失则跳过
+      const userTmplIds = setting.tmplIds || {};
+      const templateId = (userTmplIds[tmplField] || '').trim();
+      if (!templateId || templateId.indexOf(PLACEHOLDER_HINT) === 0) {
+        skippedNoTmpl++;
+        errors.push({
+          touser,
+          error: '未配置订阅消息模板 ID（请在「我-推送设置」中填入）',
+        });
+        continue;
+      }
+
       try {
         await cloud.openapi.subscribeMessage.send({
           touser,
@@ -103,6 +114,7 @@ exports.main = async (event) => {
         pushType,
         error: errors[0].error,
         errors,
+        skippedNoTmpl,
       };
     }
 
@@ -111,6 +123,7 @@ exports.main = async (event) => {
       pushed,
       pushType,
       total: targets.length,
+      skippedNoTmpl,
       errors,
     };
   } catch (err) {

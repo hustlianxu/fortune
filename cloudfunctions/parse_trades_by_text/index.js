@@ -372,7 +372,7 @@ async function postProcessTrades(trades, account_id, warnings) {
  */
 const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
 
-async function importTrade(trade, account_id, warnings) {
+async function importTrade(trade, account_id, warnings, request_id) {
   const type = trade.type;
   // 影响持仓的交易必须有产品代码
   if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
@@ -417,6 +417,8 @@ async function importTrade(trade, account_id, warnings) {
     created_at: db.serverDate(),
     updated_at: db.serverDate(),
   };
+  // 写入导入幂等 key，便于双击/重试时识别重复提交
+  if (request_id) data.import_request_id = request_id;
   const addRes = await db.collection('transactions').add({ data });
 
   if (HOLDING_AFFECTING.indexOf(type) >= 0) {
@@ -453,6 +455,7 @@ exports.main = async (event) => {
     account_id,
     provider,
     dry_run = true,
+    request_id = '',   // 客户端生成的去重 key，用于幂等：同一 request_id 二次提交直接返回上次结果
   } = event || {};
 
   if (!account_id) {
@@ -461,6 +464,32 @@ exports.main = async (event) => {
 
   const warnings = [];
   let trades = [];
+
+  // 幂等检查：若该 request_id 已写入过 transactions，直接视为成功导入（防止前端按钮被双击导致重复持仓）
+  if (!dry_run && request_id) {
+    try {
+      const existRes = await db.collection('transactions').where({ import_request_id: request_id }).limit(1).get();
+      if (existRes.data && existRes.data.length > 0) {
+        // 拉回这批 transactions 作为返回
+        const allRes = await db.collection('transactions').where({ import_request_id: request_id }).get();
+        const existTxns = (allRes && allRes.data) || [];
+        return {
+          success: true,
+          message: `本次导入已存在（${existTxns.length} 笔），跳过重复写入`,
+          trades: existTxns.map(t => ({
+            type: t.type, product_name: t.product_name, product_code: t.product_code,
+            product_type: t.product_type, exchange: t.exchange, shares: t.shares,
+            price: t.price, fee: t.fee, amount: t.amount, trade_date: t.trade_date, note: t.note,
+          })),
+          warnings,
+          imported: existTxns.length,
+          deduped: true,
+        };
+      }
+    } catch (e) {
+      console.warn('[parse_trades_by_text] dedup check error:', e);
+    }
+  }
 
   try {
     // ============ 1. 拿到 ParsedTrade[] ============
@@ -573,7 +602,7 @@ exports.main = async (event) => {
     let imported = 0;
     for (let i = 0; i < trades.length; i++) {
       try {
-        await importTrade(trades[i], account_id, warnings);
+        await importTrade(trades[i], account_id, warnings, request_id);
         imported++;
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);
