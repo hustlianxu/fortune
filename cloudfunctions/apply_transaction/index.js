@@ -18,6 +18,9 @@
  *   total_pnl = 浮动盈亏(market_value - cost_value) + realized_pnl + total_dividend - total_fee
  *
  * 幂等：transaction 带 applied_holding 标记，已应用则跳过。
+ *
+ * 重要修复（2025-07）：
+ *   - 创建新持仓时写入 _openid（从 cloud.getWXContext() 获取），确保小程序端能查询到
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -40,6 +43,10 @@ exports.main = async (event) => {
   if (!transaction_id) {
     return { success: false, message: '缺少 transaction_id' };
   }
+
+  // 获取 openid，用于创建持仓时写入 _openid（确保小程序端能查询到）
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext.OPENID || '';
 
   try {
     // 1. 读取交易
@@ -165,8 +172,8 @@ exports.main = async (event) => {
           account_id: txn.account_id,
           product_code: txn.product_code,
           product_name: txn.product_name || txn.product_code,
-          product_type: txn.product_type || '',
-          exchange: txn.exchange || '',
+          product_type: txn.product_type || inferProductType(txn.product_code) || '',
+          exchange: txn.exchange || inferExchange(txn.product_code) || '',
           shares: shares,
           cost_price: Number(newCostPrice.toFixed(4)),
           cost_value: Number(buyCost.toFixed(2)),
@@ -185,6 +192,8 @@ exports.main = async (event) => {
           created_at: db.serverDate(),
           updated_at: db.serverDate(),
         };
+        // 写入 _openid（确保小程序端能查询到该持仓）
+        if (openid) newHolding._openid = openid;
         const addRes = await db.collection('holdings').add({ data: newHolding });
         resultHolding = { ...newHolding, _id: addRes._id };
       }

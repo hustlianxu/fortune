@@ -17,6 +17,9 @@
  *   5. 返回统计 { rebuilt, cleared, skipped }
  *
  * 幂等：每次都从空状态回放，重建结果一致。
+ *
+ * 重要修复（2025-07）：
+ *   - 创建新持仓时写入 _openid（从 cloud.getWXContext() 获取），确保小程序端能查询到
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -42,6 +45,10 @@ async function fetchAll(collection, where) {
 
 exports.main = async (event) => {
   const { account_id, product_code } = event || {};
+
+  // 获取 openid，用于创建持仓时写入 _openid（确保小程序端能查询到）
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext.OPENID || '';
 
   try {
     // 1. 构建查询条件
@@ -183,6 +190,8 @@ exports.main = async (event) => {
           note: '',
           created_at: db.serverDate(),
         });
+        // 写入 _openid（确保小程序端能查询到该持仓）
+        if (openid) newHolding._openid = openid;
         await db.collection('holdings').add({ data: newHolding });
       }
       rebuilt++;
