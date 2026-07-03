@@ -232,7 +232,7 @@
               </view>
             </block>
           </block>
-          <text wx:else class="sub-report-content" wx:if="{{sub.content}}" user-select="{{true}}" decode="{{true}}">{{sub.content}}</text>
+          <text wx:else class="sub-report-content" user-select="{{true}}" decode="{{true}}">{{sub.content}}</text>
         </view>
       </view>
     </view>
