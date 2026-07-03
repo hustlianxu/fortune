@@ -3,7 +3,88 @@
 <!-- 持仓列表 -->
 <view class="page">
   <view class="card">
-    <view class="page-title">📋 持仓列表</view>
+    <view class="page-title-row">
+      <text class="page-title">📋 持仓列表</text>
+      <view class="top-actions">
+        <text class="top-btn" bindtap="onGoAnalysis">📊 多维分析</text>
+        <text class="top-btn" bindtap="onOpenIndustryTask">🏷 刷新行业</text>
+        <text class="top-btn" bindtap="onOpenCleared">♻ 已清理</text>
+        <text class="top-btn" bindtap="onToggleHideCleared">{{hideCleared ? '☑' : '☐'}} 隐藏清仓</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ═══════ 行业分类刷新任务面板 ═══════ -->
+  <view class="industry-task-mask" wx:if="{{industryTask.show}}" bindtap="onCloseIndustryTask"></view>
+  <view class="industry-task-panel" wx:if="{{industryTask.show}}" catchtap="">
+    <view class="it-header">
+      <text class="it-title">🏷 行业分类刷新</text>
+      <text class="it-close" bindtap="onCloseIndustryTask">✕</text>
+    </view>
+    <view class="it-desc">
+      通过已配置的 AI 模型，根据产品代码与名称自动推断所属行业（如银行、半导体、新能源）。
+      仅推断「行业」为空且未关闭自动刷新的持仓；手动填写的不被覆盖。可在持仓编辑页关闭单只的自动刷新。
+    </view>
+    <view class="it-stats">
+      <view class="it-stat">
+        <text class="it-stat-num">{{industryTask.total}}</text>
+        <text class="it-stat-label">待分类</text>
+      </view>
+      <view class="it-stat">
+        <text class="it-stat-num">{{industryTask.processed}}</text>
+        <text class="it-stat-label">已处理</text>
+      </view>
+      <view class="it-stat">
+        <text class="it-stat-num it-stat-ok">{{industryTask.updated}}</text>
+        <text class="it-stat-label">成功</text>
+      </view>
+      <view class="it-stat">
+        <text class="it-stat-num it-stat-fail">{{industryTask.failed}}</text>
+        <text class="it-stat-label">失败</text>
+      </view>
+    </view>
+    <view class="it-progress" wx:if="{{industryTask.total > 0}}">
+      <view class="it-progress-fill" style="width: {{industryTask.total > 0 ? (industryTask.processed / industryTask.total * 100) : 0}}%"></view>
+    </view>
+    <view class="it-log">{{industryTask.log}}</view>
+    <view class="it-actions">
+      <button class="it-btn it-btn-primary" wx:if="{{!industryTask.running}}" bindtap="onStartIndustryTask"
+        disabled="{{industryTask.total === 0}}">开始推断</button>
+      <button class="it-btn it-btn-stop" wx:if="{{industryTask.running}}" bindtap="onStopIndustryTask">停止</button>
+      <button class="it-btn it-btn-ghost" bindtap="onCloseIndustryTask">{{industryTask.running ? '后台运行' : '关闭'}}</button>
+    </view>
+  </view>
+
+  <!-- ═══════ 已清理数据面板（持仓删除后保留的交易，可恢复）═══════ -->
+  <view class="industry-task-mask" wx:if="{{clearedPanel.show}}" bindtap="onCloseCleared"></view>
+  <view class="industry-task-panel cleared-panel" wx:if="{{clearedPanel.show}}" catchtap="">
+    <view class="it-header">
+      <text class="it-title">♻ 已清理数据</text>
+      <text class="it-close" bindtap="onCloseCleared">✕</text>
+    </view>
+    <view class="it-desc">
+      删除持仓时，对应交易记录会保留（标记为"持仓已删除"）作为恢复来源。
+      点击「恢复」可取消标记并重建持仓。
+    </view>
+
+    <view class="cleared-loading" wx:if="{{clearedPanel.loading}}">加载中...</view>
+
+    <scroll-view scroll-y class="cleared-list" wx:if="{{!clearedPanel.loading}}">
+      <view class="cleared-empty" wx:if="{{clearedPanel.groups.length === 0}}">
+        暂无已清理数据
+      </view>
+      <view class="cleared-item" wx:for="{{clearedPanel.groups}}" wx:key="product_code" wx:for-index="gidx">
+        <view class="cleared-item-info">
+          <view class="cleared-item-name">{{item.product_name}}</view>
+          <view class="cleared-item-meta">
+            <text>{{item.account_name}}</text>
+            <text> · {{item.count}} 笔</text>
+            <text> · 最近 {{item.latest_date}}</text>
+          </view>
+        </view>
+        <button class="cleared-restore-btn" size="mini" bindtap="onRestoreCleared" data-index="{{gidx}}">恢复</button>
+      </view>
+    </scroll-view>
   </view>
 
   <!-- ═══════ 策略汇总卡片 ═══════ -->
@@ -62,6 +143,7 @@
           <view class="holding-body">
             <text class="holding-code">{{h.product_code}}</text>
             <text class="tag {{c.tagClass(h.product_type)}}">{{c.productTypeName(h.product_type)}}</text>
+            <text class="tag tag-industry" wx:if="{{h.industry}}">{{h.industry}}</text>
           </view>
           <view class="holding-footer">
             <text>当前: {{fmt.formatMoney(h.current_price)}}</text>
