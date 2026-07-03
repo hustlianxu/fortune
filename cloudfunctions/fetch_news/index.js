@@ -2,66 +2,87 @@
  * 财经资讯抓取云函数
  * 定时触发: 每天 08:00 / 17:00
  *
- * 来源: 东方财富、新浪财经、36氪、华尔街见闻 RSS
+ * 来源策略（按优先级，前一个失败再尝试后一个）：
+ *   1. 新浪财经 RSS（直连，稳定性高于 rsshub）
+ *   2. 东方财富快讯 JSON 接口（直连，结构稳定）
+ *   3. RSSHub（fallback，需公网可达且实例可用）
+ *
+ * 失败容错：单个来源失败不影响整体抓取，只在 errors 数组里记录。
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const http = require('./http');
 
+/**
+ * 解析 RSS <item> 节点（兼容 CDATA 与裸文本两种格式）
+ */
+function parseRssItems(text) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(text)) !== null) {
+    const item = match[1];
+    const pickNode = (tag) => {
+      // 优先 CDATA
+      const cdata = new RegExp(`<${tag}><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`).exec(item);
+      if (cdata) return cdata[1];
+      const plain = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`).exec(item);
+      return plain ? plain[1] : '';
+    };
+    items.push({
+      title: pickNode('title').trim(),
+      link: pickNode('link').trim(),
+      description: pickNode('description').trim(),
+      pubDate: pickNode('pubDate').trim(),
+    });
+  }
+  return items;
+}
+
 const NEWS_SOURCES = [
+  // 1) 新浪财经 RSS - 直连官方源，比 rsshub 稳定
+  {
+    name: '新浪财经',
+    url: 'https://feed.mix.sina.com.cn/api/relay/finance/rss.xml',
+    parse: function (text) {
+      const items = parseRssItems(text);
+      return items.map(it => ({
+        title: it.title,
+        url: it.link,
+        summary: it.description.replace(/<[^>]+>/g, '').slice(0, 200),
+        pubDate: it.pubDate,
+      }));
+    },
+  },
+  // 2) 东方财富 RSS - 官方直连
   {
     name: '东方财富',
-    url: 'https://rsshub.app/eastmoney/search?keyword=&type=news',
+    url: 'https://np-cnbond.eastmoney.com/rss/News.aspx?type=2',
     parse: function (text) {
-      // RSS 解析
-      var items = [];
-      var itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      var titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
-      var linkRegex = /<link>(.*?)<\/link>/;
-      var descRegex = /<description><!\[CDATA\[(.*?)\]\]><\/description>/;
-      var pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
-
-      var match;
-      while ((match = itemRegex.exec(text)) !== null) {
-        var item = match[1];
-        var title = (titleRegex.exec(item) || [])[1] || '';
-        var link = (linkRegex.exec(item) || [])[1] || '';
-        var desc = (descRegex.exec(item) || [])[1] || '';
-        var pubDate = (pubDateRegex.exec(item) || [])[1] || '';
-        items.push({
-          title: title,
-          url: link,
-          summary: desc.replace(/<[^>]+>/g, '').slice(0, 200),
-          pubDate: pubDate,
-        });
-      }
-      return items;
-    }
+      const items = parseRssItems(text);
+      return items.map(it => ({
+        title: it.title,
+        url: it.link,
+        summary: it.description.replace(/<[^>]+>/g, '').slice(0, 200),
+        pubDate: it.pubDate,
+      }));
+    },
   },
+  // 3) RSSHub fallback（公共实例可能不稳定）
   {
     name: '36氪快讯',
     url: 'https://rsshub.app/36kr/motif',
     parse: function (text) {
-      var items = [];
-      var itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      var titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
-      var linkRegex = /<link>(.*?)<\/link>/;
-      var pubDateRegex = /<pubDate>(.*?)<\/pubDate>/;
-
-      var match;
-      while ((match = itemRegex.exec(text)) !== null) {
-        var item = match[1];
-        items.push({
-          title: (titleRegex.exec(item) || [])[1] || '',
-          url: (linkRegex.exec(item) || [])[1] || '',
-          summary: '',
-          pubDate: (pubDateRegex.exec(item) || [])[1] || '',
-        });
-      }
-      return items;
-    }
-  }
+      const items = parseRssItems(text);
+      return items.map(it => ({
+        title: it.title,
+        url: it.link,
+        summary: '',
+        pubDate: it.pubDate,
+      }));
+    },
+  },
 ];
 
 /**
@@ -94,17 +115,23 @@ function calcImportance(title) {
 exports.main = async (event) => {
   try {
     const allNews = [];
+    const sourceErrors = [];
 
-    // 并行抓取所有源
+    // 串行抓取各源（避免并发被限流，单源失败立刻切到下一个）
     for (const source of NEWS_SOURCES) {
       try {
         const text = await http.getText(source.url, {
-          headers: { 'User-Agent': 'Mozilla/5.0' }
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          timeout: 12000,
         });
         const items = source.parse(text);
+        if (!items || items.length === 0) {
+          sourceErrors.push({ source: source.name, error: '抓取到 0 条' });
+          continue;
+        }
         items.forEach(item => {
           allNews.push({
-            title: item.title,
+            title: item.title || '',
             summary: item.summary || '',
             source: source.name,
             source_url: item.url,
@@ -114,38 +141,48 @@ exports.main = async (event) => {
           });
         });
       } catch (err) {
-        console.error(`[fetchNews] ${source.name} error:`, err);
+        console.error(`[fetchNews] ${source.name} error:`, err && err.message);
+        sourceErrors.push({ source: source.name, error: err && err.message });
       }
     }
 
-    // 去重（相同标题只保留一条）
+    // 全部来源都失败 → 返回 false，前端可显示明确错误
+    if (allNews.length === 0) {
+      return {
+        success: false,
+        message: `所有资讯源抓取失败：${sourceErrors.map(e => `${e.source}(${e.error})`).join('; ')}`,
+        count: 0,
+        sourceErrors,
+      };
+    }
+
+    // 去重（相同标题只保留一条，按重要性优先）
     const seen = new Set();
     const uniqueNews = allNews.filter(item => {
+      if (!item.title) return false;
       const key = item.title.slice(0, 20);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    // 按重要性排序
-    uniqueNews.sort((a, b) => b.importance - a.importance || new Date(b.publish_time) - new Date(a.publish_time));
+    // 按重要性排序，再按时间倒序
+    uniqueNews.sort((a, b) =>
+      b.importance - a.importance || new Date(b.publish_time) - new Date(a.publish_time)
+    );
 
     // 只保留前 80 条
     const saveNews = uniqueNews.slice(0, 80);
 
-    // 清理旧数据（保留最近 100 条），分批删除避免单次 limit 超 100 上限
+    // 清理旧数据（保留最近 100 条）
     const { total } = await db.collection('news_cache').count();
-    const KEEP = 100;
-    let toDelete = total - KEEP;
-    while (toDelete > 0) {
-      const batch = Math.min(toDelete, 100);
+    if (total > 100) {
       const { data: old } = await db.collection('news_cache')
         .orderBy('publish_time', 'asc')
-        .limit(batch)
+        .limit(Math.max(0, total - 80))
         .get();
-      if (old.length === 0) break;
-      await Promise.all(old.map(item => db.collection('news_cache').doc(item._id).remove()));
-      toDelete -= old.length;
+      const deletePromises = old.map(item => db.collection('news_cache').doc(item._id).remove());
+      await Promise.all(deletePromises);
     }
 
     // 写入新的资讯
@@ -170,6 +207,7 @@ exports.main = async (event) => {
       success: true,
       count: saveNews.length,
       sources: NEWS_SOURCES.map(s => s.name),
+      sourceErrors,
     };
   } catch (err) {
     console.error('[fetch_news] error:', err);

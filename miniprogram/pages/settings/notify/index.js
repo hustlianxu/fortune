@@ -5,22 +5,23 @@
  *   - 本地 storage（notify_settings）
  *   - 云数据库 notify_settings 集合（按 openid 隔离，通过 save_notify_settings 云函数 upsert）
  * 读取时以云端为准，云端不可用时回退本地。
+ *
+ * 订阅消息模板 ID：
+ *   用户在微信公众平台「订阅消息」后台申请后，在本页填入对应模板 ID；
+ *   保存后写入云端 notify_settings.tmplIds 字段，push_news / check_price_alert 云函数读取后即可推送。
  */
-// 订阅消息模板 ID（占位符）
-// 注意：以下为占位符，需在微信公众平台「订阅消息」后台申请真实模板 ID 后替换。
-// 当前为占位值时 wx.requestSubscribeMessage 调用会 fail，属预期行为，不影响本地与云端保存。
-const SUBSCRIBE_TMPL_IDS = {
-  morning: 'ehz3IAziHqpm2wDlZEXl9AYryuZz65wFWjApiw2fmE8',
-  evening: 'ehz3IAziHqpm2wDlZEXl9AYryuZz65wFWjApiw2fmE8',
-  price_alert: 'FlcTXL2NC2IXi6tXTKjC01vB3hAXkQNwZpomFy27N7s',
-};
-
 Page({
   data: {
     morningNews: true,
     eveningNews: true,
     priceAlert: false,
     alertThreshold: '3',
+    // 订阅消息模板 ID（用户在微信公众平台申请后填入）
+    tmplIds: {
+      morning: '',
+      evening: '',
+      price_alert: '',
+    },
   },
 
   onLoad() {
@@ -57,11 +58,17 @@ Page({
 
   _applySettings(settings) {
     if (!settings) return;
+    const tmplIds = settings.tmplIds || this.data.tmplIds;
     this.setData({
       morningNews: settings.morningNews !== false,
       eveningNews: settings.eveningNews !== false,
       priceAlert: settings.priceAlert || false,
       alertThreshold: settings.alertThreshold || '3',
+      tmplIds: {
+        morning: tmplIds.morning || '',
+        evening: tmplIds.evening || '',
+        price_alert: tmplIds.price_alert || '',
+      },
     });
   },
 
@@ -77,12 +84,25 @@ Page({
     this.setData({ priceAlert: !this.data.priceAlert });
   },
 
+  onMorningTmplInput(e) {
+    this.setData({ 'tmplIds.morning': (e.detail.value || '').trim() });
+  },
+
+  onEveningTmplInput(e) {
+    this.setData({ 'tmplIds.evening': (e.detail.value || '').trim() });
+  },
+
+  onPriceAlertTmplInput(e) {
+    this.setData({ 'tmplIds.price_alert': (e.detail.value || '').trim() });
+  },
+
   onSave() {
     const settings = {
       morningNews: this.data.morningNews,
       eveningNews: this.data.eveningNews,
       priceAlert: this.data.priceAlert,
       alertThreshold: this.data.alertThreshold,
+      tmplIds: this.data.tmplIds,
     };
 
     // 1. 本地保存
@@ -92,14 +112,14 @@ Page({
       console.error('[Notify] local save error:', err);
     }
 
-    // 2. 收集需订阅的模板 ID（仅开启项）
+    // 2. 收集需订阅的模板 ID（仅开启项 + 已填写真实模板 ID）
     const tmplIds = [];
-    if (settings.morningNews) tmplIds.push(SUBSCRIBE_TMPL_IDS.morning);
-    if (settings.eveningNews) tmplIds.push(SUBSCRIBE_TMPL_IDS.evening);
-    if (settings.priceAlert) tmplIds.push(SUBSCRIBE_TMPL_IDS.price_alert);
+    if (settings.morningNews && settings.tmplIds.morning) tmplIds.push(settings.tmplIds.morning);
+    if (settings.eveningNews && settings.tmplIds.evening) tmplIds.push(settings.tmplIds.evening);
+    if (settings.priceAlert && settings.tmplIds.price_alert) tmplIds.push(settings.tmplIds.price_alert);
 
-    // 3. 请求订阅消息权限
-    //    模板 ID 为占位符时调用必然 fail，属预期行为，仅 warn 不阻塞保存
+    // 3. 请求订阅消息权限（仅当存在已填写的真实模板 ID 时）
+    //    未填写的项不会请求订阅，避免 fail 噪音
     if (tmplIds.length > 0) {
       wx.requestSubscribeMessage({
         tmplIds,
@@ -107,7 +127,7 @@ Page({
           console.log('[SubscribeMessage] success:', res);
         },
         fail(err) {
-          console.warn('[SubscribeMessage] fail (expected if template IDs are placeholders):', err);
+          console.warn('[SubscribeMessage] fail:', err);
         },
       });
     }
@@ -124,14 +144,20 @@ Page({
       },
     });
 
-    // 5. 提示成功，并说明推送生效前提
+    // 5. 提示成功，并明确告知未填写模板 ID 的项将无法推送
+    const missing = [];
+    if (settings.morningNews && !settings.tmplIds.morning) missing.push('早报');
+    if (settings.eveningNews && !settings.tmplIds.evening) missing.push('晚报');
+    if (settings.priceAlert && !settings.tmplIds.price_alert) missing.push('涨跌提醒');
     wx.showToast({ title: '保存成功', icon: 'success' });
-    setTimeout(() => {
-      wx.showToast({
-        title: '推送需在微信公众平台申请订阅消息模板并替换占位符后生效',
-        icon: 'none',
-        duration: 3000,
-      });
-    }, 1500);
+    if (missing.length > 0) {
+      setTimeout(() => {
+        wx.showToast({
+          title: `${missing.join('、')}未填模板 ID，暂不会推送`,
+          icon: 'none',
+          duration: 3000,
+        });
+      }, 1500);
+    }
   },
 });

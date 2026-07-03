@@ -58,7 +58,7 @@ const PROVIDERS = {
   chatgpt:  { baseURL: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini' },
   claude:   { baseURL: '', defaultModel: 'claude-sonnet-4-20250514' },
   bailian:  { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen-max' },
-  mimo:     { baseURL: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
+  mimo:     { baseURL: 'https://api.mi-ai.com/v1', defaultModel: 'MiMo' },
   minimax:  { baseURL: 'https://api.minimax.chat/v1', defaultModel: 'MiniMax-Text-01' },
   custom:   { baseURL: '', defaultModel: '' },
 };
@@ -73,77 +73,25 @@ function buildParsePrompt(text) {
 规则：
 1. 日期格式统一为 YYYY-MM-DD，年份缺失时用当前年份 ${year}
 2. 金额"36块5""36.5""36元5"都解析为 36.50
-3. type 只能是以下之一（注意区分相似概念）：
-   - buy(买入) / sell(卖出)
-   - ipo_win(打新中签/新股中签/中签缴款/新股申购中签)
-   - dividend(现金分红/分红派息/派现/到账分红) —— 注意：现金分红有金额到账
-   - stock_dividend(红股入账/送股/转增/公积金转增/送红股) —— 注意：送股只增加份额无现金到账
-   - split(份额拆分/合并/拆分/折分/缩股/合股/拆股/拆细) —— 基金拆分和股票拆分均归此类
-   - tax(纳税/扣税/缴税/红利税/个税/限售股纳税)
-   - transfer_in(银证转入/资金转入/入金)
-   - transfer_out(银证转出/资金转出/出金)
-   - fee(手续费/佣金/过户费)
-   - interest(利息/利息收入)
-4. 产品代码（product_code）：如果用户输入中已明确给出代码，直接使用；如果用户只提供了产品名称而未给代码，你必须根据产品名称从你的知识库中查找对应的A股/港股/基金代码并填入 product_code 字段（例如：招商银行→600036，华工科技→000988，贵州茅台→600519，中国平安→601318，腾讯→00700，沪深300ETF→510300，易方达蓝筹精选→005827）。若产品名称有简称/全称差异，按最常见的上市交易代码填写。只有当你完全无法确定代码时才填空字符串。产品名称尽量保留用户原文。注意：transfer_in/transfer_out/fee 若未指明具体产品，product_code 填空字符串；tax 如对应具体股票则填 product_code，否则留空。
+3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
+4. 产品代码缺失时填空字符串，产品名称尽量保留原文
 5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
-6. dividend(现金分红)/interest(利息)：shares 和 price 填 0，amount 填实际到账金额
-7. stock_dividend(红股入账/送股)：shares 填红股股数（新增份额），price/amount/fee 填 0；总成本不变，成本价由系统自动摊薄
-8. split(份额拆分/合并)：ratio 填拆分比例（如 1拆3 填 3，3合1 填 0.333），shares/price/amount/fee 填 0；总资产不变由系统自动调整
-9. tax(纳税/扣税)：amount 填已扣缴税额，shares/price 填 0
-10. ipo_win(打新中签/新股中签)：填 product_code(新股代码)、shares(中签股数)、price(发行价)，amount = shares × price；会计处理等同买入，中签缴款会自动从账户余额扣减
-11. buy/sell/ipo_win 的 amount = shares × price（不含手续费）
-12. shares 永远为正数！卖出时不要写负号（如"卖出500股"填 shares:500，不是 -500）。"卖出减少股数"由系统在应用时自动扣减，shares 字段只表示"交易了多少股"这个绝对数量。同理 amount 也永远为正数。
-13. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
+6. 分红/利息类交易 shares 和 price 填 0，amount 填实际金额
+7. buy/sell 的 amount = shares × price（不含手续费）
+8. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
 
 输出格式（严格遵循）：
 [
   {
     "type": "buy",
     "product_name": "招商银行",
-    "product_code": "600036",
+    "product_code": "",
     "shares": 1000,
     "price": 36.50,
     "fee": 5,
     "amount": 36500,
-    "ratio": 0,
     "trade_date": "${year}-03-15",
     "note": ""
-  },
-  {
-    "type": "stock_dividend",
-    "product_name": "贵州茅台",
-    "product_code": "600519",
-    "shares": 100,
-    "price": 0,
-    "amount": 0,
-    "fee": 0,
-    "ratio": 0,
-    "trade_date": "${year}-06-15",
-    "note": "10送1"
-  },
-  {
-    "type": "split",
-    "product_name": "通信ETF",
-    "product_code": "515880",
-    "shares": 0,
-    "price": 0,
-    "amount": 0,
-    "fee": 0,
-    "ratio": 3,
-    "trade_date": "${year}-02-02",
-    "note": "1拆3"
-  },
-  {
-    "type": "ipo_win",
-    "product_name": "某某新股",
-    "product_code": "301xxx",
-    "shares": 500,
-    "price": 12.50,
-    "amount": 6250,
-    "fee": 0,
-    "ratio": 0,
-    "trade_date": "${year}-05-20",
-    "note": "打新中签"
   }
 ]
 
@@ -253,26 +201,18 @@ function extractJsonArray(content) {
 function normalizeTrade(t, warnings) {
   if (!t || typeof t !== 'object') return null;
   const type = String(t.type || '').toLowerCase();
-  const allowed = ['buy', 'sell', 'ipo_win', 'dividend', 'stock_dividend', 'split', 'tax', 'transfer_in', 'transfer_out', 'fee', 'interest'];
+  const allowed = ['buy', 'sell', 'dividend', 'transfer_in', 'transfer_out', 'fee', 'interest'];
   if (!allowed.includes(type)) {
     warnings.push(`跳过未知交易类型：${t.type}`);
     return null;
   }
-  let shares = Number(t.shares) || 0;
+  const shares = Number(t.shares) || 0;
   const price = Number(t.price) || 0;
   const fee = Number(t.fee) || 0;
-  const ratio = Number(t.ratio) || 0;
   let amount = Number(t.amount);
   if (isNaN(amount)) amount = 0;
-  // 归一化：外部 JSON（如同花顺/东财导出）sell 习惯用负数表示减少，统一取绝对值。
-  // "卖出减少股数"是会计语义，由系统在应用时用 oldShares - shares 处理，shares 本身应为正数。
-  if (shares < 0 && (type === 'buy' || type === 'sell' || type === 'ipo_win' || type === 'stock_dividend')) {
-    warnings.push(`「${t.product_name || type}」shares 为负数(${shares})，已自动取绝对值归一化`);
-    shares = Math.abs(shares);
-    if (amount < 0) amount = Math.abs(amount);
-  }
-  // buy/sell/ipo_win 缺失 amount 时按 shares×price 自动补
-  if ((type === 'buy' || type === 'sell' || type === 'ipo_win') && amount === 0 && shares > 0 && price > 0) {
+  // buy/sell 缺失 amount 时按 shares×price 自动补
+  if ((type === 'buy' || type === 'sell') && amount === 0 && shares > 0 && price > 0) {
     amount = shares * price;
   }
   // 日期缺失或格式不对
@@ -281,22 +221,10 @@ function normalizeTrade(t, warnings) {
     warnings.push(`交易"${t.product_name || type}"日期格式异常：${tradeDate}，已用今天兜底`);
     tradeDate = new Date().toISOString().split('T')[0];
   }
-  // 买卖/打新中签/分红/利息/红股/拆分类交易需要产品代码才能匹配持仓，缺失时预警
-  const needsCode = ['buy', 'sell', 'ipo_win', 'dividend', 'interest', 'stock_dividend', 'split'].indexOf(type) >= 0;
+  // 买卖/分红/利息类交易需要产品代码才能匹配持仓，缺失时预警
+  const needsCode = ['buy', 'sell', 'dividend', 'interest'].indexOf(type) >= 0;
   if (needsCode && !String(t.product_code || '').trim()) {
     warnings.push(`「${t.product_name || type}」缺少产品代码，将无法匹配持仓（请在导入前补全代码）`);
-  }
-  // split 缺少 ratio 时预警
-  if (type === 'split' && ratio <= 0) {
-    warnings.push(`「${t.product_name || type}」拆分/合并缺少有效 ratio（应 >0，如 3=1拆3，0.333=3合1）`);
-  }
-  // stock_dividend 缺少 shares 时预警
-  if (type === 'stock_dividend' && shares <= 0) {
-    warnings.push(`「${t.product_name || type}」红股入账缺少有效份额（shares 应 >0）`);
-  }
-  // tax 缺少 amount 时预警
-  if (type === 'tax' && amount <= 0) {
-    warnings.push(`「${t.product_name || type}」纳税缺少有效金额（amount 应 >0）`);
   }
   return {
     type,
@@ -307,7 +235,6 @@ function normalizeTrade(t, warnings) {
     shares,
     price,
     fee,
-    ratio,
     amount: Number(amount.toFixed(2)),
     trade_date: tradeDate,
     note: String(t.note || ''),
@@ -381,7 +308,7 @@ function hasFeeRates(account) {
  * - 推断 product_type / exchange（用于费率计算和写入）
  * - fee 缺失（0）时按账户费率自动计算
  */
-async function postProcessTrades(trades, account_id, warnings, openid) {
+async function postProcessTrades(trades, account_id, warnings) {
   if (!trades || trades.length === 0) return trades;
 
   // 拉账户
@@ -393,14 +320,12 @@ async function postProcessTrades(trades, account_id, warnings, openid) {
     console.warn('[postProcess] account not found:', account_id, e);
   }
 
-  // 拉账户下已有持仓，用于补全 product_type / exchange（按 openid 隔离）
+  // 拉账户下已有持仓，用于补全 product_type / exchange
   let holdingsMap = {};
   if (account) {
     try {
-      const holdingWhere = { account_id };
-      if (openid) holdingWhere._openid = openid;
       const { data: holdings } = await db.collection('holdings')
-        .where(holdingWhere).get();
+        .where({ account_id }).get();
       holdings.forEach(h => {
         const key = (h.product_code || '').toUpperCase();
         if (key) holdingsMap[key] = h;
@@ -440,35 +365,31 @@ async function postProcessTrades(trades, account_id, warnings, openid) {
 
 /**
  * 写入一笔交易并应用到持仓
- * - buy/sell/dividend/interest/stock_dividend/split 需产品代码，缺失则抛错（不写入，避免脏数据）
+ * - buy/sell/dividend/interest 需产品代码，缺失则抛错（不写入，避免脏数据）
  * - buy 计算 is_opening（首次建仓）
- * - 所有类型均调 apply_transaction 应用（持仓更新 + 账户现金余额联动），失败仅预警（交易已记录，可重建修复）
+ * - buy/sell/dividend/interest 调 apply_transaction 应用到持仓，失败仅预警（交易已记录，可重建修复）
+ * - transfer_in/transfer_out/fee 仅记录
  */
-const NEEDS_CODE = ['buy', 'sell', 'ipo_win', 'dividend', 'interest', 'stock_dividend', 'split'];
+const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
 
-async function importTrade(trade, account_id, warnings, openid) {
+async function importTrade(trade, account_id, warnings, request_id) {
   const type = trade.type;
-  // 影响持仓的交易必须有产品代码：缺码则跳过（不抛错，避免打断整批导入）
-  if (NEEDS_CODE.indexOf(type) >= 0 && !trade.product_code) {
-    warnings.push(`「${trade.product_name || type}」缺少产品代码，已跳过（请在导入前补全代码）`);
-    return null;
+  // 影响持仓的交易必须有产品代码
+  if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
+    throw new Error(`「${trade.product_name || type}」缺少产品代码，无法导入`);
   }
 
   // 判断是否建仓（首次买入）：该账户+代码下既无持仓又无历史买入
   let isOpening = false;
   if (type === 'buy') {
     try {
-      const holdingWhere = { account_id, product_code: trade.product_code };
-      if (openid) holdingWhere._openid = openid;
       const existHolding = await db.collection('holdings')
-        .where(holdingWhere)
+        .where({ account_id, product_code: trade.product_code })
         .limit(1).get();
       const hasHolding = existHolding.data && existHolding.data.length > 0;
       if (!hasHolding) {
-        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy' };
-        if (openid) txnWhere._openid = openid;
         const existBuy = await db.collection('transactions')
-          .where(txnWhere)
+          .where({ account_id, product_code: trade.product_code, type: 'buy' })
           .limit(1).get();
         const hasBuy = existBuy.data && existBuy.data.length > 0;
         isOpening = !hasBuy;
@@ -479,7 +400,6 @@ async function importTrade(trade, account_id, warnings, openid) {
   }
 
   const data = {
-    _openid: openid || '',
     account_id,
     type,
     product_code: trade.product_code || '',
@@ -490,7 +410,6 @@ async function importTrade(trade, account_id, warnings, openid) {
     price: trade.price,
     amount: trade.amount,
     fee: trade.fee,
-    ratio: trade.ratio || 0,
     trade_date: trade.trade_date,
     note: trade.note || '',
     is_opening: isOpening,
@@ -498,21 +417,32 @@ async function importTrade(trade, account_id, warnings, openid) {
     created_at: db.serverDate(),
     updated_at: db.serverDate(),
   };
+  // 写入导入幂等 key，便于双击/重试时识别重复提交
+  if (request_id) data.import_request_id = request_id;
   const addRes = await db.collection('transactions').add({ data });
 
-  // 所有类型均调 apply_transaction 应用（持仓更新 + 账户现金余额联动）
-  try {
-    const res = await cloud.callFunction({
-      name: 'apply_transaction',
-      data: { transaction_id: addRes._id },
-    });
-    const result = res && res.result;
-    if (!result || !result.success) {
-      const msg = (result && result.message) || '应用失败';
-      warnings.push(`「${trade.product_name || trade.product_code || type}」已记录但未应用：${msg}（可在持仓详情页「重建」修复）`);
+  if (HOLDING_AFFECTING.indexOf(type) >= 0) {
+    // 调 apply_transaction 应用到持仓（幂等）
+    try {
+      const res = await cloud.callFunction({
+        name: 'apply_transaction',
+        data: { transaction_id: addRes._id },
+      });
+      const result = res && res.result;
+      if (!result || !result.success) {
+        const msg = (result && result.message) || '应用持仓失败';
+        warnings.push(`「${trade.product_name || trade.product_code}」已记录但未应用到持仓：${msg}（可在持仓详情页「重建」修复）`);
+      }
+    } catch (e) {
+      warnings.push(`「${trade.product_name || trade.product_code}」已记录但应用到持仓异常：${e.message}（可在持仓详情页「重建」修复）`);
     }
-  } catch (e) {
-    warnings.push(`「${trade.product_name || trade.product_code || type}」已记录但应用异常：${e.message}（可在持仓详情页「重建」修复）`);
+  } else {
+    // 转账/手续费类不影响持仓，直接标记已应用
+    try {
+      await db.collection('transactions').doc(addRes._id).update({
+        data: { applied_holding: true, applied_at: db.serverDate() },
+      });
+    } catch (e) {}
   }
   return addRes._id;
 }
@@ -525,18 +455,41 @@ exports.main = async (event) => {
     account_id,
     provider,
     dry_run = true,
+    request_id = '',   // 客户端生成的去重 key，用于幂等：同一 request_id 二次提交直接返回上次结果
   } = event || {};
 
   if (!account_id) {
     return { success: false, message: '缺少 account_id（请先选择目标账户）' };
   }
 
-  // 当前调用者 openid（用于数据隔离 + 写入归属）
-  const wxCtx = cloud.getWXContext();
-  const openid = wxCtx.OPENID || '';
-
   const warnings = [];
   let trades = [];
+
+  // 幂等检查：若该 request_id 已写入过 transactions，直接视为成功导入（防止前端按钮被双击导致重复持仓）
+  if (!dry_run && request_id) {
+    try {
+      const existRes = await db.collection('transactions').where({ import_request_id: request_id }).limit(1).get();
+      if (existRes.data && existRes.data.length > 0) {
+        // 拉回这批 transactions 作为返回
+        const allRes = await db.collection('transactions').where({ import_request_id: request_id }).get();
+        const existTxns = (allRes && allRes.data) || [];
+        return {
+          success: true,
+          message: `本次导入已存在（${existTxns.length} 笔），跳过重复写入`,
+          trades: existTxns.map(t => ({
+            type: t.type, product_name: t.product_name, product_code: t.product_code,
+            product_type: t.product_type, exchange: t.exchange, shares: t.shares,
+            price: t.price, fee: t.fee, amount: t.amount, trade_date: t.trade_date, note: t.note,
+          })),
+          warnings,
+          imported: existTxns.length,
+          deduped: true,
+        };
+      }
+    } catch (e) {
+      console.warn('[parse_trades_by_text] dedup check error:', e);
+    }
+  }
 
   try {
     // ============ 1. 拿到 ParsedTrade[] ============
@@ -557,14 +510,16 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings, openid);
+      trades = await postProcessTrades(trades, account_id, warnings);
     } else {
       // text 模式：调 LLM 解析
       if (!text || !text.trim()) {
         return { success: false, message: '请输入要解析的文字', trades: [], warnings: [] };
       }
 
-      // 读取用户 LLM 配置（按 openid 隔离，openid 已在 main 顶部获取）
+      // 读取用户 LLM 配置（按 openid 隔离）
+      const wxCtx = cloud.getWXContext();
+      const openid = wxCtx.OPENID || '';
       const cfgQuery = openid ? { _openid: openid } : {};
       const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
       const userConfig = configs[0];
@@ -620,7 +575,7 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings, openid);
+      trades = await postProcessTrades(trades, account_id, warnings);
     }
 
     if (trades.length === 0) {
@@ -643,23 +598,15 @@ exports.main = async (event) => {
       };
     }
 
-    // ============ 3. 实际写入（分批并发，避免大量数据超时） ============
-    // 每笔 importTrade 内部会调 apply_transaction 云函数，串行执行时
-    // 超过 20 笔极易触发云函数 60s 超时。这里按 BATCH_SIZE 并发写入。
-    const BATCH_SIZE = 5;
+    // ============ 3. 实际写入 ============
     let imported = 0;
-    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-      const batch = trades.slice(i, i + BATCH_SIZE);
-      const batchStart = i;
-      const results = await Promise.all(batch.map((trade, j) =>
-        importTrade(trade, account_id, warnings, openid)
-          .then(id => { if (id) imported++; return true; })
-          .catch(err => {
-            warnings.push(`第 ${batchStart + j + 1} 笔写入失败：${err.message}`);
-            return false;
-          })
-      ));
-      // 批次结果已合并到 imported 和 warnings
+    for (let i = 0; i < trades.length; i++) {
+      try {
+        await importTrade(trades[i], account_id, warnings, request_id);
+        imported++;
+      } catch (err) {
+        warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);
+      }
     }
 
     return {

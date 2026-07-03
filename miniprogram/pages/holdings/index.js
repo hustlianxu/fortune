@@ -235,6 +235,24 @@ Page({
           }
         } catch (err) {
           console.error('[IndustryTask] batch error:', err);
+          // 检测云函数未部署（errCode -501000 / FUNCTION_NOT_FOUND）
+          // 此时继续下一批也会失败，提前终止并给出明确指引
+          const errMsg = (err && (err.errMsg || err.message)) || '';
+          if (errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
+            || errMsg.indexOf('could not be found') >= 0
+            || errMsg.indexOf('-501000') >= 0) {
+            this.setData({
+              _stopFlag: true,
+              'industryTask.running': false,
+              'industryTask.log': 'infer_industry 云函数未部署，请在开发者工具右键 cloudfunctions/infer_industry 上传并部署',
+            });
+            wx.showModal({
+              title: '云函数未部署',
+              content: '行业分类需要 infer_industry 云函数。请在微信开发者工具中右键 cloudfunctions/infer_industry 文件夹，选择「上传并部署：云端安装依赖」后重试。',
+              showCancel: false,
+            });
+            return;
+          }
           failed += batch.length;
         }
 

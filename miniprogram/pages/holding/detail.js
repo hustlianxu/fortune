@@ -10,121 +10,12 @@ const { PRODUCT_TYPES } = require('../../utils/constants');
 
 const db = wx.cloud.database();
 
-/**
- * 从交易流水全量回放计算持仓真实数据
- * 不依赖数据库存储的字段，用加权平均法（同花顺口径）重算
- * @param {Array} txns - 按 trade_date asc 排序的交易记录
- * @param {number} currentPrice - 当前行情价
- * @returns {object} { shares, costPrice, costValue, marketValue, pnl, pnlPercent,
- *                      realizedPnl, totalDividend, totalFee, totalPnl, totalPnlPercent }
- */
-function replayHolding(txns, currentPrice) {
-  let shares = 0;
-  let costValue = 0;
-  let costPrice = 0;
-  let realizedPnl = 0;
-  let totalDividend = 0;
-  let totalFee = 0;
-
-  for (let i = 0; i < txns.length; i++) {
-    const t = txns[i];
-    const type = t.type;
-    const tShares = Math.abs(Number(t.shares) || 0);
-    const tPrice = Number(t.price) || 0;
-    const tFee = Number(t.fee) || 0;
-    const tAmount = Number(t.amount) || 0;
-
-    if (type === 'buy' || type === 'ipo_win') {
-      // 买入成本含手续费（同花顺口径）；打新中签 ipo_win 会计处理等同 buy
-      const buyCost = tShares * tPrice + tFee;
-      const newShares = shares + tShares;
-      const newCostValue = costValue + buyCost;
-      costPrice = newShares > 0 ? newCostValue / newShares : tPrice;
-      shares = newShares;
-      costValue = newCostValue;
-      totalFee += tFee;
-    } else if (type === 'sell') {
-      // 已实现盈亏 = (卖出价 - 成本价) × 卖出份额 - 卖出手续费
-      const sellRealized = (tPrice - costPrice) * tShares - tFee;
-      realizedPnl += sellRealized;
-      shares = Math.max(0, shares - tShares);
-      costValue = shares * costPrice;
-      totalFee += tFee;
-    } else if (type === 'dividend' || type === 'interest') {
-      totalDividend += tAmount;
-    } else if (type === 'stock_dividend') {
-      // 红股入账（送股）：份额增加，总成本不变，成本价摊薄
-      const bonusShares = Math.abs(Number(t.shares) || 0);
-      if (bonusShares > 0 && shares + bonusShares > 0) {
-        shares += bonusShares;
-        costPrice = shares > 0 ? costValue / shares : costPrice;
-      }
-    } else if (type === 'split') {
-      // 份额拆分/合并：按 ratio 调整份额与成本价，总成本不变
-      // ratio > 1 拆分（如 3=1拆3），0 < ratio < 1 合并（如 0.333=3合1）
-      const ratio = Number(t.ratio) || 0;
-      if (ratio > 0) {
-        shares = Number((shares * ratio).toFixed(4));
-        costPrice = costPrice / ratio;
-        costValue = Number((shares * costPrice).toFixed(2));
-      }
-    } else if (type === 'tax') {
-      // 纳税：计入已实现盈亏扣减（限售股个税、红利税等）
-      realizedPnl -= tAmount;
-    }
-  }
-
-  const mv = shares * currentPrice;
-  const cv = costValue;
-  const pnl = mv - cv;
-  const totalPnl = pnl + realizedPnl + totalDividend;
-
-  return {
-    shares,
-    costPrice: Number(costPrice.toFixed(4)),
-    costValue: Number(cv.toFixed(2)),
-    marketValue: Number(mv.toFixed(2)),
-    pnl: Number(pnl.toFixed(2)),
-    pnlPercent: cv > 0 ? Number(((pnl / cv) * 100).toFixed(2)) : 0,
-    realizedPnl: Number(realizedPnl.toFixed(2)),
-    totalDividend: Number(totalDividend.toFixed(2)),
-    totalFee: Number(totalFee.toFixed(2)),
-    totalPnl: Number(totalPnl.toFixed(2)),
-    totalPnlPercent: cv > 0 ? Number(((totalPnl / cv) * 100).toFixed(2)) : 0,
-  };
-}
-
-/**
- * 分页拉取该持仓的全部交易（客户端单次 get 上限 20，需循环拉取）
- */
-async function fetchAllTransactions(accountId, productCode) {
-  const PAGE_SIZE = 20;
-  let all = [];
-  let skip = 0;
-  while (true) {
-    const res = await db.collection('transactions')
-      .where({ account_id: accountId, product_code: productCode })
-      .orderBy('trade_date', 'asc')
-      .orderBy('created_at', 'asc')
-      .skip(skip)
-      .limit(PAGE_SIZE)
-      .get();
-    const batch = res.data || [];
-    all = all.concat(batch);
-    if (batch.length < PAGE_SIZE) break;
-    skip += PAGE_SIZE;
-    if (skip > 2000) break;
-  }
-  return all;
-}
-
 Page({
   data: {
     holding: {},
     holdingId: '',
     priceColor: 'price-flat',
-    transactions: [],         // 该持仓的全部交易（按日期正序，供回放/图表）
-    displayTransactions: [],  // 倒序副本（最新在上，供列表展示）
+    transactions: [],         // 该持仓的全部交易（按日期正序）
     loadingTxns: false,
     chartRendered: false,
   },
@@ -141,11 +32,11 @@ Page({
     }
   },
 
-  /** 按顺序加载持仓 → 交易 → 回放重算 → 画图 */
+  /** 按顺序加载持仓 → 交易 → 画图 */
   async loadAll() {
-    await this.loadHolding();
+    // 先拉交易明细（用于回放校验持仓数量，避免出现「列表显示的数量与明细不一致」）
     await this.loadAllTransactions();
-    this.replayAndCorrect();
+    await this.loadHolding();
     this.drawChart();
   },
 
@@ -153,23 +44,96 @@ Page({
     try {
       const res = await db.collection('holdings').doc(this.data.holdingId).get();
       const holding = res.data || {};
+
+      // ============ 关键修复：以交易明细为唯一真源回放校验持仓 ============
+      // 解决「持仓列表数量 vs 详情数量不一致 / 点开重建才一致」：
+      // 详情页进来就从该 (account_id, product_code) 的全部交易回放，
+      // 若回放出的 shares / cost / realized / dividend / fee 与持仓 doc 存的不一致，
+      // 立即把持仓 doc 改成回放结果（用户无需手动点「重建」）
+      const txns = this.data.transactions || [];
+      let rpShares = 0, rpCostValue = 0, rpCostPrice = 0;
+      let rpRealized = 0, rpDividend = 0, rpFee = 0;
+      for (const t of txns) {
+        const type = t.type;
+        const tShares = Number(t.shares) || 0;
+        const tPrice = Number(t.price) || 0;
+        const tFee = Number(t.fee) || 0;
+        const tAmount = Number(t.amount) || 0;
+        if (type === 'buy') {
+          const buyCost = tShares * tPrice + tFee;
+          const newShares = rpShares + tShares;
+          const newCostValue = rpCostValue + buyCost;
+          rpCostPrice = newShares > 0 ? newCostValue / newShares : tPrice;
+          rpShares = newShares;
+          rpCostValue = newCostValue;
+          rpFee += tFee;
+        } else if (type === 'sell') {
+          const sellRealized = (tPrice - rpCostPrice) * tShares - tFee;
+          rpRealized += sellRealized;
+          rpShares = Math.max(0, rpShares - tShares);
+          rpCostValue = rpShares * rpCostPrice;
+          rpFee += tFee;
+        } else if (type === 'dividend' || type === 'interest') {
+          rpDividend += tAmount;
+        }
+      }
+      const mismatch = txns.length > 0 && (
+        Math.abs((Number(holding.shares) || 0) - rpShares) > 0.0001
+        || Math.abs((Number(holding.cost_value) || 0) - Number(rpCostValue.toFixed(2))) > 0.01
+        || Math.abs((Number(holding.realized_pnl) || 0) - Number(rpRealized.toFixed(2))) > 0.01
+        || Math.abs((Number(holding.total_dividend) || 0) - Number(rpDividend.toFixed(2))) > 0.01
+        || Math.abs((Number(holding.total_fee) || 0) - Number(rpFee.toFixed(2))) > 0.01
+      );
+      // 若持仓 doc 与回放结果不一致：直接覆盖写入 DB，并使用回放值渲染
+      // 这一步等价于自动「重建」，让列表与详情天然一致
+      const effectiveHolding = mismatch
+        ? Object.assign({}, holding, {
+            shares: rpShares,
+            cost_price: Number(rpCostPrice.toFixed(4)),
+            cost_value: Number(rpCostValue.toFixed(2)),
+            realized_pnl: Number(rpRealized.toFixed(2)),
+            total_dividend: Number(rpDividend.toFixed(2)),
+            total_fee: Number(rpFee.toFixed(2)),
+            is_cleared: rpShares <= 0,
+          })
+        : holding;
+      if (mismatch) {
+        try {
+          await db.collection('holdings').doc(holding._id).update({
+            data: {
+              shares: rpShares,
+              cost_price: Number(rpCostPrice.toFixed(4)),
+              cost_value: Number(rpCostValue.toFixed(2)),
+              realized_pnl: Number(rpRealized.toFixed(2)),
+              total_dividend: Number(rpDividend.toFixed(2)),
+              total_fee: Number(rpFee.toFixed(2)),
+              is_cleared: rpShares <= 0,
+              updated_at: db.serverDate(),
+            },
+          });
+        } catch (e) {
+          console.warn('[Holding Detail] auto-rebuild update failed:', e);
+        }
+      }
+      // ============ 回放校验结束 ============
+
       // 实时重算盈亏，避免行情刷新/编辑持仓后仍使用旧快照导致与同花顺偏差
-      const shares = Number(holding.shares) || 0;
-      const currentPrice = Number(holding.current_price) || 0;
-      const costValue = Number(holding.cost_value) || (shares * Number(holding.cost_price || 0));
+      const shares = Number(effectiveHolding.shares) || 0;
+      const currentPrice = Number(effectiveHolding.current_price) || 0;
+      const costValue = Number(effectiveHolding.cost_value) || (shares * Number(effectiveHolding.cost_price || 0));
       const marketValue = shares * currentPrice;
       const pnl = marketValue - costValue;                                  // 浮动盈亏
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
-      const realized = Number(holding.realized_pnl) || 0;                   // 累计已实现盈亏
-      const dividend = Number(holding.total_dividend) || 0;                 // 累计分红
-      const totalFee = Number(holding.total_fee) || 0;                      // 累计手续费
-      // 总收益（同花顺口径） = 浮动 + 已实现 + 分红（手续费已计入成本与已实现）
-      const totalPnl = Number((pnl + realized + dividend).toFixed(2));
+      const realized = Number(effectiveHolding.realized_pnl) || 0;          // 累计已实现盈亏
+      const dividend = Number(effectiveHolding.total_dividend) || 0;        // 累计分红
+      const totalFee = Number(effectiveHolding.total_fee) || 0;             // 累计手续费
+      // 总收益（同花顺口径） = 浮动 + 已实现 + 分红 - 手续费
+      const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
       // 总收益率（按累计投入成本算）
       const investedCost = costValue + Math.max(0, realized);  // 已实现盈亏对应的部分已退出，用累计投入近似
       const totalPnlPercent = investedCost > 0 ? (totalPnl / investedCost) * 100 : 0;
 
-      const recomputed = Object.assign({}, holding, {
+      const recomputed = Object.assign({}, effectiveHolding, {
         market_value: marketValue,
         cost_value: costValue,
         pnl,
@@ -189,17 +153,68 @@ Page({
     }
   },
 
-  /** 加载该持仓的全部交易（按日期正序，用于回放和图表；列表展示用倒序副本） */
+  /**
+   * 手动重建该持仓（用户在详情页点「重建」按钮触发）
+   * 调 rebuild_holdings 云函数，按 (account_id, product_code) 全量回放并去重重复持仓
+   */
+  async onRebuild() {
+    const h = this.data.holding;
+    if (!h.account_id || !h.product_code) {
+      wx.showToast({ title: '缺少账户或代码', icon: 'none' });
+      return;
+    }
+    wx.showLoading({ title: '重建中...', mask: true });
+    try {
+      const r = await wx.cloud.callFunction({
+        name: 'rebuild_holdings',
+        data: { account_id: h.account_id, product_code: h.product_code },
+      });
+      wx.hideLoading();
+      const res = (r && r.result) || {};
+      if (res.success) {
+        wx.showModal({
+          title: '重建完成',
+          content: res.message || '已完成',
+          showCancel: false,
+        });
+        // 重新加载详情（可能持仓 doc 已被更新，或被去重后 _id 变化）
+        // 若该持仓被去重删除，则跳回列表
+        try {
+          await db.collection('holdings').doc(this.data.holdingId).get();
+          this.loadAll();
+        } catch (e) {
+          wx.showToast({ title: '该持仓已被合并/删除', icon: 'none' });
+          setTimeout(() => wx.navigateBack(), 800);
+        }
+      } else {
+        wx.showToast({ title: res.message || '重建失败', icon: 'none' });
+      }
+    } catch (err) {
+      console.error('[Holding Detail] rebuild error:', err);
+      wx.hideLoading();
+      const msg = err && err.errMsg && err.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
+        ? '请先部署 rebuild_holdings 云函数'
+        : '重建失败';
+      wx.showToast({ title: msg, icon: 'none' });
+    }
+  },
+
+  /** 加载该持仓的全部交易（按日期正序，用于图表和列表） */
   async loadAllTransactions() {
     const { holding } = this.data;
     if (!holding.account_id || !holding.product_code) return;
     this.setData({ loadingTxns: true });
     try {
-      const list = await fetchAllTransactions(holding.account_id, holding.product_code);
-      // transactions: 正序（回放/图表用）；displayTransactions: 倒序（列表展示，最新在上）
+      const res = await db.collection('transactions')
+        .where({
+          account_id: holding.account_id,
+          product_code: holding.product_code,
+        })
+        .orderBy('trade_date', 'asc')
+        .orderBy('created_at', 'asc')
+        .get();
       this.setData({
-        transactions: list,
-        displayTransactions: list.slice().reverse(),
+        transactions: res.data || [],
         loadingTxns: false,
       });
     } catch (err) {
@@ -209,101 +224,8 @@ Page({
   },
 
   /**
-   * 从交易流水全量回放重算持仓数据，覆盖数据库旧记录
-   * 确保 cost_value/realized_pnl/total_dividend/total_pnl 与同花顺口径一致
+   * 绘制累计投入折线图
    */
-  replayAndCorrect() {
-    const { holding, transactions } = this.data;
-    if (!holding._id || !transactions || transactions.length === 0) return;
-
-    const currentPrice = Number(holding.current_price) || 0;
-    if (currentPrice <= 0) return;
-
-    const r = replayHolding(transactions, currentPrice);
-
-    const recomputed = Object.assign({}, holding, {
-      shares: r.shares,
-      cost_price: r.costPrice,
-      cost_value: r.costValue,
-      market_value: r.marketValue,
-      pnl: r.pnl,
-      pnl_percent: r.pnlPercent,
-      realized_pnl: r.realizedPnl,
-      total_dividend: r.totalDividend,
-      total_fee: r.totalFee,
-      total_pnl: r.totalPnl,
-      total_pnl_percent: r.totalPnlPercent,
-    });
-
-    this.setData({
-      holding: recomputed,
-      priceColor: getPriceColor(r.totalPnl),
-    });
-
-    // 写回数据库，确保持仓列表/首页看板等使用 DB 字段的页面也显示正确值
-    if (holding._id) {
-      db.collection('holdings').doc(holding._id).update({
-        data: {
-          shares: r.shares,
-          cost_price: r.costPrice,
-          cost_value: r.costValue,
-          realized_pnl: r.realizedPnl,
-          total_dividend: r.totalDividend,
-          total_fee: r.totalFee,
-          total_pnl: r.totalPnl,
-          is_cleared: r.shares <= 0,
-          updated_at: db.serverDate(),
-        },
-      }).catch(err => {
-        console.warn('[replayAndCorrect] DB update error:', err);
-      });
-    }
-  },
-
-  /**
-   * 从交易流水定向重建当前持仓（调 rebuild_holdings 云函数，限定 account_id+product_code）
-   * 用于修复"已记录但未应用"的交易、负数 shares 等导致的持仓数据错误
-   */
-  onRebuildHolding() {
-    const holding = this.data.holding;
-    if (!holding || !holding._id) return;
-    wx.showModal({
-      title: '重建持仓',
-      content: `将根据「${holding.product_name || holding.product_code}」的全部交易流水重新计算份额与成本（幂等，可重复执行）。是否继续？`,
-      success: async (res) => {
-        if (!res.confirm) return;
-        wx.showLoading({ title: '重建中...', mask: true });
-        try {
-          const r = await wx.cloud.callFunction({
-            name: 'rebuild_holdings',
-            data: {
-              account_id: holding.account_id,
-              product_code: holding.product_code,
-            },
-          });
-          wx.hideLoading();
-          const result = r.result || {};
-          if (result.success) {
-            wx.showToast({ title: '重建完成', icon: 'success' });
-            this.loadAll();
-          } else {
-            wx.showModal({
-              title: '重建失败',
-              content: result.message || '请稍后重试',
-              showCancel: false,
-            });
-          }
-        } catch (err) {
-          wx.hideLoading();
-          console.error('[onRebuildHolding] error:', err);
-          const msg = err.errMsg && err.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
-            ? '云函数 rebuild_holdings 未部署'
-            : '重建失败，请稍后重试';
-          wx.showModal({ title: '错误', content: msg, showCancel: false });
-        }
-      },
-    });
-  },
   drawChart() {
     const txns = this.data.transactions;
     if (txns.length < 2) {
@@ -316,7 +238,7 @@ Page({
       if (!res || !res[0]) return;
       const canvas = res[0].node;
       const ctx = canvas.getContext('2d');
-      const dpr = (wx.getWindowInfo && wx.getWindowInfo().pixelRatio) || 2;
+      const dpr = wx.getSystemInfoSync().pixelRatio;
       const width = res[0].width;
       const height = res[0].height;
       canvas.width = width * dpr;
@@ -467,9 +389,7 @@ Page({
           const txnRes = await db.collection('transactions').doc(id).get();
           const txn = txnRes.data;
           await db.collection('transactions').doc(id).remove();
-          // 影响持仓的交易（买卖/打新中签/分红/利息/红股/拆分/纳税）删除后需回放剩余交易修正持仓
-          const holdingAffecting = ['buy', 'sell', 'ipo_win', 'dividend', 'interest', 'stock_dividend', 'split', 'tax'];
-          if (txn && holdingAffecting.indexOf(txn.type) >= 0) {
+          if (txn && (txn.type === 'buy' || txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'interest')) {
             await this.undoHolding(txn);
           }
           wx.hideLoading();
@@ -493,23 +413,66 @@ Page({
       if (!holding) return;
 
       // 拉取该持仓剩余的全部交易（被删除的已不在集合中），按日期正序回放
-      const txns = await fetchAllTransactions(txn.account_id, txn.product_code);
+      const txnsRes = await db.collection('transactions')
+        .where({ account_id: txn.account_id, product_code: txn.product_code })
+        .orderBy('trade_date', 'asc')
+        .orderBy('created_at', 'asc')
+        .get();
+      const txns = txnsRes.data || [];
+
+      let shares = 0;
+      let costValue = 0;
+      let costPrice = 0;
+      let realizedPnl = 0;
+      let totalDividend = 0;
+      let totalFee = 0;
+
+      for (const t of txns) {
+        const type = t.type;
+        const tShares = Number(t.shares) || 0;
+        const tPrice = Number(t.price) || 0;
+        const tFee = Number(t.fee) || 0;
+        const tAmount = Number(t.amount) || 0;
+
+        if (type === 'buy') {
+          // 买入成本含手续费（同花顺口径）
+          const buyCost = tShares * tPrice + tFee;
+          const newShares = shares + tShares;
+          const newCostValue = costValue + buyCost;
+          costPrice = newShares > 0 ? newCostValue / newShares : tPrice;
+          shares = newShares;
+          costValue = newCostValue;
+          totalFee += tFee;
+        } else if (type === 'sell') {
+          // 已实现盈亏 = (卖出价 - 成本价) × 卖出份额 - 卖出手续费
+          const sellRealized = (tPrice - costPrice) * tShares - tFee;
+          realizedPnl += sellRealized;
+          shares = Math.max(0, shares - tShares);
+          costValue = shares * costPrice;
+          totalFee += tFee;
+        } else if (type === 'dividend' || type === 'interest') {
+          totalDividend += tAmount;
+        }
+      }
+
       const curPrice = Number(holding.current_price) || 0;
-      const r = replayHolding(txns, curPrice);
-      const isCleared = r.shares <= 0;
+      const marketValue = Number((shares * curPrice).toFixed(2));
+      const pnl = Number((marketValue - costValue).toFixed(2));
+      const totalPnl = Number((pnl + realizedPnl + totalDividend - totalFee).toFixed(2));
+      const isCleared = shares <= 0;
 
       await db.collection('holdings').doc(holding._id).update({
         data: {
-          shares: r.shares,
-          cost_price: r.costPrice,
-          cost_value: r.costValue,
-          market_value: r.marketValue,
-          pnl: r.pnl,
-          pnl_percent: r.pnlPercent,
-          realized_pnl: r.realizedPnl,
-          total_dividend: r.totalDividend,
-          total_fee: r.totalFee,
-          total_pnl: r.totalPnl,
+          shares: shares,
+          cost_price: Number(costPrice.toFixed(4)),
+          cost_value: Number(costValue.toFixed(2)),
+          market_value: marketValue,
+          pnl: pnl,
+          pnl_percent: costValue > 0 ? Number(((pnl / costValue) * 100).toFixed(2)) : 0,
+          realized_pnl: Number(realizedPnl.toFixed(2)),
+          total_dividend: Number(totalDividend.toFixed(2)),
+          total_fee: Number(totalFee.toFixed(2)),
+          total_pnl: totalPnl,
           is_cleared: isCleared,
           updated_at: db.serverDate(),
         },
@@ -542,29 +505,18 @@ Page({
   },
 
   onDelete() {
-    const h = this.data.holding;
     wx.showModal({
       title: '确认删除',
-      content: `删除 ${h.product_name} 的全部记录（含该持仓的所有交易记录）？此操作不可恢复。`,
+      content: `删除 ${this.data.holding.product_name} 的持仓记录？`,
       success: async (res) => {
-        if (!res.confirm) return;
-        wx.showLoading({ title: '删除中...', mask: true });
-        try {
-          // 先删关联交易（避免僵尸交易导致重导入时旧记录再现）
-          if (h.account_id && h.product_code) {
-            const txns = await fetchAllTransactions(h.account_id, h.product_code);
-            for (const t of txns) {
-              try { await db.collection('transactions').doc(t._id).remove(); } catch (e) { /* 单条失败不影响 */ }
-            }
+        if (res.confirm) {
+          try {
+            await db.collection('holdings').doc(this.data.holding._id).remove();
+            wx.showToast({ title: '已删除', icon: 'success' });
+            setTimeout(() => wx.navigateBack(), 1000);
+          } catch (err) {
+            wx.showToast({ title: '删除失败', icon: 'none' });
           }
-          // 再删持仓
-          await db.collection('holdings').doc(this.data.holding._id).remove();
-          wx.hideLoading();
-          wx.showToast({ title: '已删除', icon: 'success' });
-          setTimeout(() => wx.navigateBack(), 1000);
-        } catch (err) {
-          wx.hideLoading();
-          wx.showToast({ title: '删除失败', icon: 'none' });
         }
       },
     });

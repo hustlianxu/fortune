@@ -71,7 +71,7 @@
   <view class="card" wx:if="{{parsedTrades.length > 0}}">
     <view class="section-row">
       <text class="section-title">解析结果（{{parsedTrades.length}} 笔）</text>
-      <text class="link-btn danger" bindtap="onConfirmImport" wx:if="{{!importing}}">✓ 确认导入</text>
+      <text class="link-btn danger {{importing ? 'disabled' : ''}}" bindtap="onConfirmImport" wx:if="{{!importing}}">✓ 确认导入</text>
     </view>
 
     <view class="warnings" wx:if="{{warnings.length > 0}}">

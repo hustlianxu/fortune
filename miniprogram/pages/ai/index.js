@@ -2,14 +2,15 @@
  * AI 持仓分析页面
  * - 支持多 AI 协作：选中多个分析师独立分析，再由汇总模型综合
  * - 单选时退化为单模型分析（向后兼容）
- * - Markdown 渲染 / 超时续传 / 结果导出
  */
 const api = require('../../utils/api');
 const { formatMoney, formatDate, getPriceColor } = require('../../utils/format');
 const { ANALYSIS_TYPES, LLM_PROVIDERS } = require('../../utils/constants');
-const { mdToHtml } = require('../../utils/markdown');
+const { parseMarkdown } = require('../../utils/markdown');
 
-const DB = wx.cloud.database();
+// 单次分析最久等待时间（毫秒）。超过即视为超时，提示用户稍后查看，
+// 并允许重新进入页面时自动加载最近一次报告（见 onShow 与 onAnalyzeTimeout）。
+const ANALYZE_TIMEOUT_MS = 55 * 1000;
 
 Page({
   data: {
@@ -17,39 +18,73 @@ Page({
     analyzing: false,
     canAnalyze: false,
     providerConfigured: false,
-    configuredProviders: [],
-    analysts: [],
-    analystSelected: {},      // { providerKey: true } 供 WXML 成员访问判断选中态（WXML 不支持 .indexOf()）
-    synthIndex: 0,
-    synthNames: [],
+    configuredProviders: [],   // 已配置且启用的 provider 列表 [{key,name}]
+    analysts: [],              // 选中的分析师 provider key 数组
+    synthIndex: 0,             // 汇总模型 picker 索引
+    synthNames: [],            // 汇总模型名称列表（随选中分析师动态更新）
     selectedType: 'portfolio_health',
     analysisTypes: ANALYSIS_TYPES,
-    summary: { totalAssets: 0, totalPnL: 0, holdings: [], holdingCount: 0, accountCount: 0 },
+    summary: {
+      totalAssets: 0,
+      totalPnL: 0,
+      holdings: [],
+      holdingCount: 0,
+      accountCount: 0,
+    },
     result: {
       show: false,
-      summary: '', summaryHtml: '',
+      summary: '',
       keyFindings: [],
+      findingBlocks: [],     // 每条 key_finding 解析后的 markdown blocks
       riskLevel: '',
-      content: '', contentHtml: '',
+      content: '',
+      contentBlocks: [],     // report_content 解析后的 markdown blocks
+      subContentBlocks: [],  // 子报告解析后的 markdown blocks 数组（与 subReports 一一对应）
       date: '',
       multiMode: false,
       subReports: [],
     },
     showSubReports: false,
+    // 上一次分析超时但服务端可能仍在生成，重新进入页面时自动展示最新报告
+    hasPendingReport: false,
+    pendingHint: '',
     historyReports: [],
     qaQuestion: '',
-    qaAnswer: '', qaAnswerHtml: '',
+    qaAnswer: '',
     canAsk: false,
     pnlColor: 'price-flat',
-    progress: '',               // 分析进度文案
-    taskId: '',                 // 异步任务 ID（超时续传用）
-    timedOut: false,            // 是否超时
   },
 
   onShow() {
     this.loadData();
     this.loadLLMConfig();
     this.loadHistory();
+    // 若上次分析超时（hasPendingReport），自动尝试加载最新报告，
+    // 让用户重新进来即可看到刚才的解析结果
+    if (this.data.hasPendingReport) {
+      this.tryLoadLatestAfterTimeout();
+    }
+  },
+
+  /**
+   * 超时后重新进入页面，自动尝试拉取最新一份报告并展示。
+   * 若最新报告时间在最近 30 分钟内，则视为本次超时分析的结果。
+   */
+  async tryLoadLatestAfterTimeout() {
+    try {
+      const reports = await api.getAnalysisReports();
+      if (reports && reports.length > 0) {
+        const latest = reports[0];
+        const created = latest.created_at ? new Date(latest.created_at) : null;
+        const within30Min = created && (Date.now() - created.getTime() < 30 * 60 * 1000);
+        if (within30Min) {
+          this.fillResultFromReport(latest, { multiMode: false, subReports: [] });
+          this.setData({ hasPendingReport: false, pendingHint: '' });
+        }
+      }
+    } catch (e) {
+      console.warn('[AI] tryLoadLatestAfterTimeout error:', e);
+    }
   },
 
   async loadData() {
@@ -79,17 +114,18 @@ Page({
           .map(p => ({ key: p.key, name: p.name }));
       }
       const providerConfigured = configuredProviders.length > 0;
+      // 默认选中第一个已配置模型
       let analysts = this.data.analysts;
       if (analysts.length === 0 && configuredProviders.length > 0) {
         analysts = [configuredProviders[0].key];
       } else if (configuredProviders.length > 0) {
+        // 过滤掉已失效的选中项
         analysts = analysts.filter(k => configuredProviders.some(p => p.key === k));
         if (analysts.length === 0) analysts = [configuredProviders[0].key];
       } else {
         analysts = [];
       }
       this.setData({ configuredProviders, providerConfigured, analysts });
-      this._syncAnalystSelected();
       this.updateSynthNames();
       this.updateCanAnalyze();
     } catch (err) {
@@ -97,34 +133,10 @@ Page({
     }
   },
 
-  /** 由 analysts 数组派生 analystSelected 对象 map（WXML 不支持 .indexOf()，改用成员访问） */
-  _syncAnalystSelected() {
-    const map = {};
-    this.data.analysts.forEach(k => { map[k] = true; });
-    this.setData({ analystSelected: map });
-  },
-
   async loadHistory() {
     try {
       const reports = await api.getAnalysisReports();
       this.setData({ historyReports: reports });
-      if (reports.length > 0 && !this.data.result.show) {
-        const latest = reports[0];
-        this.setData({
-          result: {
-            show: true,
-            summary: latest.summary || '',
-            summaryHtml: mdToHtml(latest.summary || ''),
-            keyFindings: latest.key_findings || [],
-            riskLevel: latest.risk_level || '',
-            content: latest.report_content || '',
-            contentHtml: mdToHtml(latest.report_content || ''),
-            date: formatDate(new Date(latest.created_at)),
-            multiMode: false,
-            subReports: [],
-          },
-        });
-      }
     } catch (err) {
       console.error('[AI] loadHistory error:', err);
     }
@@ -139,11 +151,13 @@ Page({
     });
   },
 
+  /** 切换分析师选中态 */
   onToggleAnalyst(e) {
     const key = e.currentTarget.dataset.key;
     let analysts = this.data.analysts.slice();
     const idx = analysts.indexOf(key);
     if (idx >= 0) {
+      // 至少保留 1 个
       if (analysts.length <= 1) {
         wx.showToast({ title: '至少选择 1 个模型', icon: 'none' });
         return;
@@ -153,14 +167,15 @@ Page({
       analysts.push(key);
     }
     this.setData({ analysts });
-    this._syncAnalystSelected();
     this.updateSynthNames();
     this.updateCanAnalyze();
   },
 
+  /** 更新汇总模型候选列表（仅含已选中的分析师） */
   updateSynthNames() {
     const selected = this.data.configuredProviders.filter(p => this.data.analysts.indexOf(p.key) >= 0);
     const synthNames = selected.map(p => p.name);
+    // 索引越界保护
     let synthIndex = this.data.synthIndex;
     if (synthIndex >= synthNames.length) synthIndex = 0;
     this.setData({ synthNames, synthIndex });
@@ -171,66 +186,48 @@ Page({
   },
 
   onTypeSelect(e) {
-    this.setData({ selectedType: e.currentTarget.dataset.key });
+    const key = e.currentTarget.dataset.key;
+    this.setData({ selectedType: key });
   },
 
-  // ==============================
-  //  分析主流程（含超时续传）
-  // ==============================
   async onStartAnalysis() {
     if (!this.data.canAnalyze || this.data.analyzing) return;
     const analysts = this.data.analysts;
-    if (analysts.length === 0) return;
+    if (analysts.length === 0) {
+      wx.showToast({ title: '请至少选择 1 个模型', icon: 'none' });
+      return;
+    }
 
-    this.setData({
-      analyzing: true,
-      showSubReports: false,
-      timedOut: false,
-      taskId: '',
-      progress: '',
-      'result.show': false,
+    this.setData({ analyzing: true, showSubReports: false });
+    const multi = analysts.length > 1;
+    wx.showLoading({
+      title: multi ? `多模型协作分析中（${analysts.length} 个模型）...` : 'AI 分析中...',
+      mask: true,
     });
 
-    const multi = analysts.length > 1;
-    // 用 showLoading 但每隔 8s 更新文案，让用户感知进度
-    this.showProgress(multi ? `多模型分析中（第 1/${analysts.length} 步）...` : 'AI 分析中...');
-
+    // 用 Promise.race 与超时竞争：超过 ANALYZE_TIMEOUT_MS 即视为超时，
+    // 但云函数可能仍在生成报告（服务端会写库），标记为 hasPendingReport，
+    // 让用户稍后或重新进入页面时通过 tryLoadLatestAfterTimeout 自动看到结果。
+    const startedAt = Date.now();
+    let analyzePromise;
     try {
-      // 预先在 DB 创建一条任务记录（用于超时后续传）
-      // 注：_openid 由云数据库在前端 add 时自动注入当前用户，手动写入会报 Invalid Key Name
-      // 注：analysis_tasks 集合可能未创建（未运行 init_db），失败时降级为无续传，不阻塞主流程
-      let taskId = '';
-      try {
-        const taskRes = await DB.collection('analysis_tasks').add({
-          data: {
-            type: this.data.selectedType,
-            analysts,
-            status: 'processing',
-            progress: 0,
-            created_at: DB.serverDate(),
-            updated_at: DB.serverDate(),
-          },
-        });
-        taskId = taskRes._id;
-      } catch (taskErr) {
-        console.warn('[AI] analysis_tasks 不可用，降级为无续传模式:', taskErr.errMsg || taskErr.message);
-      }
-      this.setData({ taskId });
-
-      let res;
       if (multi) {
         const synthKey = this.data.analysts[this.data.synthIndex] || analysts[0];
-        this.setData({ progress: `多模型协作分析中（${analysts.length} 个模型并行）...` });
-        res = await api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
+        analyzePromise = api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
       } else {
-        res = await api.analyzePortfolio(this.data.selectedType, analysts[0]);
+        analyzePromise = api.analyzePortfolio(this.data.selectedType, analysts[0]);
       }
-
-      // 标记任务完成
-      this.finishTask(taskId, 'completed');
+      const res = await Promise.race([
+        analyzePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('ANALYZE_TIMEOUT')), ANALYZE_TIMEOUT_MS)
+        ),
+      ]);
 
       if (res && res.success) {
-        this.showResult(res, multi, taskId);
+        const report = res.report || {};
+        this.fillResultFromReport(report, { multiMode: !!res.multiMode, subReports: res.subReports || [] });
+        this.setData({ hasPendingReport: false, pendingHint: '' });
         wx.hideLoading();
         this.loadHistory();
       } else {
@@ -239,15 +236,20 @@ Page({
       }
     } catch (err) {
       wx.hideLoading();
-      // 超时 vs 其他错误
-      if (err.errCode === -1 || (err.message && err.message.indexOf('timeout') >= 0)) {
-        this.setData({ timedOut: true, progress: '分析超时，部分结果已保存' });
+      const isTimeout = (err && err.message === 'ANALYZE_TIMEOUT');
+      if (isTimeout) {
+        // 客户端超时，但服务端可能仍在生成。允许用户重新进入页面时自动看到最新报告
+        this.setData({
+          hasPendingReport: true,
+          pendingHint: '分析耗时较长，服务端仍在生成中。请稍后返回本页将自动展示最新结果，或前往「历史分析记录」查看。',
+        });
         wx.showModal({
           title: '分析超时',
-          content: '由于大模型响应较慢，分析未在 60 秒内完成。已保存部分结果，可点击「继续分析」续传。',
-          confirmText: '继续分析',
-          success: (r) => { if (r.confirm) this.onContinueAnalysis(); },
+          content: 'AI 正在生成报告，但耗时较长。云函数会继续完成并保存。请稍后回到本页面，将自动展示最新结果；也可在「历史分析记录」中查看。',
+          showCancel: false,
+          confirmText: '我知道了',
         });
+        this.loadHistory();
       } else {
         wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
         console.error('[AI] analysis error:', err);
@@ -257,168 +259,29 @@ Page({
     this.setData({ analyzing: false });
   },
 
-  /** 续传超时的分析任务 */
-  async onContinueAnalysis() {
-    const taskId = this.data.taskId;
-    if (!taskId) {
-      wx.showToast({ title: '无续传任务', icon: 'none' });
-      return;
-    }
-    this.setData({ analyzing: true, timedOut: false, progress: '续传分析中...' });
-    wx.showLoading({ title: '续传中...', mask: true });
-
-    try {
-      // 从 DB 读取已保存的部分结果
-      const taskRes = await DB.collection('analysis_tasks').doc(taskId).get();
-      const task = taskRes.data;
-      if (!task || task.status === 'completed') {
-        wx.hideLoading();
-        wx.showToast({ title: '该任务已完成', icon: 'success' });
-        this.setData({ analyzing: false });
-        return;
-      }
-
-      // 重新发起分析（云函数会检测 taskId 并续传）
-      const analysts = this.data.analysts;
-      const multi = analysts.length > 1;
-      const synthKey = multi ? (this.data.analysts[this.data.synthIndex] || analysts[0]) : undefined;
-
-      const res = multi
-        ? await api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey)
-        : await api.analyzePortfolio(this.data.selectedType, analysts[0]);
-
-      this.finishTask(taskId, 'completed');
-
-      if (res && res.success) {
-        this.showResult(res, multi, taskId);
-        wx.hideLoading();
-        this.loadHistory();
-      } else {
-        wx.hideLoading();
-        wx.showToast({ title: res?.message || '分析失败', icon: 'none' });
-      }
-    } catch (err) {
-      wx.hideLoading();
-      wx.showToast({ title: '续传失败，请重试', icon: 'none' });
-      this.setData({ analyzing: false, timedOut: true });
-    }
-    this.setData({ analyzing: false });
-  },
-
-  /** 展示分析结果（含 Markdown 转 HTML） */
-  showResult(res, multi, taskId) {
-    const report = res.report || {};
-    const summaryHtml = mdToHtml(report.summary || '');
-    const contentHtml = mdToHtml(report.report_content || '');
-    const subReports = (res.subReports || []).map(sr => ({
-      ...sr,
-      contentHtml: mdToHtml(sr.content || ''),
-    }));
-
+  /**
+   * 把后端 report 填到 result 并解析 markdown 为结构化 blocks（用于原生 view 渲染表格/列表/标题）
+   */
+  fillResultFromReport(report, extra) {
+    const keyFindings = report.key_findings || [];
+    const findingBlocks = keyFindings.map(f => parseMarkdown(String(f)));
+    const contentBlocks = parseMarkdown(report.report_content || '');
+    const subReports = (extra && extra.subReports) || [];
+    const subContentBlocks = subReports.map(s => parseMarkdown(String(s.content || '')));
     this.setData({
-      taskId: taskId || '',
-      'result.show': true,
-      'result.summary': report.summary || '',
-      'result.summaryHtml': summaryHtml,
-      'result.keyFindings': report.key_findings || [],
-      'result.riskLevel': report.risk_level || '',
-      'result.content': report.report_content || '',
-      'result.contentHtml': contentHtml,
-      'result.date': formatDate(new Date()),
-      'result.multiMode': !!res.multiMode,
-      'result.subReports': subReports,
-    });
-  },
-
-  /** 更新任务状态 */
-  async finishTask(taskId, status) {
-    if (!taskId) return;
-    try {
-      await DB.collection('analysis_tasks').doc(taskId).update({
-        data: { status, updated_at: DB.serverDate() },
-      });
-    } catch (e) { /* ignore */ }
-  },
-
-  /** 可定制的 loading 更新 */
-  showProgress(title) {
-    wx.showLoading({ title, mask: true });
-  },
-
-  // ==============================
-  //  导出功能
-  // ==============================
-  onCopyReport() {
-    const { content, summary, keyFindings, riskLevel } = this.data.result;
-    if (!content && !summary) {
-      wx.showToast({ title: '无报告可导出', icon: 'none' });
-      return;
-    }
-    const text = [
-      `# AI 持仓分析报告\n`,
-      `**生成时间**: ${this.data.result.date}\n`,
-      riskLevel ? `**风险等级**: ${riskLevel}\n` : '',
-      `## 摘要\n${summary}\n`,
-      keyFindings.length > 0 ? `## 关键发现\n${keyFindings.map(k => `- ${k}`).join('\n')}\n` : '',
-      content ? `## 详细报告\n${content}\n` : '',
-    ].filter(Boolean).join('\n');
-
-    wx.setClipboardData({
-      data: text,
-      success: () => wx.showToast({ title: '已复制到剪贴板（Markdown 格式）', icon: 'success' }),
-    });
-  },
-
-  onDownloadReport() {
-    const { content, summary, keyFindings, riskLevel, date } = this.data.result;
-    if (!content && !summary) {
-      wx.showToast({ title: '无报告可导出', icon: 'none' });
-      return;
-    }
-    const text = [
-      `# AI 持仓分析报告\n`,
-      `生成时间: ${date}\n`,
-      riskLevel ? `风险等级: ${riskLevel}\n` : '',
-      `---\n`,
-      `## 摘要\n${summary}\n`,
-      keyFindings.length > 0 ? `\n## 关键发现\n${keyFindings.map(k => `- ${k}`).join('\n')}\n` : '',
-      content ? `\n## 详细报告\n${content}\n` : '',
-    ].filter(Boolean).join('\n');
-
-    // 保存为 .md 文件到用户缓存目录
-    const fs = wx.getFileSystemManager();
-    const fileName = `分析报告_${date || new Date().toISOString().slice(0, 10)}.md`;
-    const filePath = `${wx.env.USER_DATA_PATH}/${fileName}`;
-    try {
-      fs.writeFileSync(filePath, text, 'utf8');
-      wx.openDocument({
-        filePath,
-        showMenu: true,
-        success: () => wx.showToast({ title: '已生成报告文件', icon: 'success' }),
-        fail: () => {
-          // openDocument 失败 → 走分享方式
-          wx.shareFileMessage({ filePath });
-        },
-      });
-    } catch (err) {
-      // 写文件失败 → 降级到剪贴板
-      wx.setClipboardData({
-        data: text,
-        success: () => wx.showToast({ title: '已复制到剪贴板', icon: 'success' }),
-      });
-    }
-  },
-
-  onCopySubReport(e) {
-    const idx = e.currentTarget.dataset.index;
-    const sub = this.data.result.subReports[idx];
-    if (!sub || !sub.content) {
-      wx.showToast({ title: '无内容可导出', icon: 'none' });
-      return;
-    }
-    wx.setClipboardData({
-      data: `## ${sub.provider} 分析报告\n\n${sub.content}`,
-      success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+      result: {
+        show: true,
+        summary: report.summary || '',
+        keyFindings,
+        findingBlocks,
+        riskLevel: report.risk_level || '',
+        content: report.report_content || '',
+        contentBlocks,
+        subContentBlocks,
+        date: formatDate(new Date()),
+        multiMode: (extra && extra.multiMode) || false,
+        subReports,
+      },
     });
   },
 
@@ -428,12 +291,15 @@ Page({
 
   onViewHistory(e) {
     const report = e.currentTarget.dataset.report;
-    wx.navigateTo({ url: `/pages/ai/report-detail?id=${report._id}` });
+    wx.navigateTo({
+      url: `/pages/ai/report-detail?id=${report._id}`,
+    });
   },
 
   async onAskQuestion() {
     const question = this.data.qaQuestion.trim();
     if (!question) return;
+    // QA 模式用第一个选中的模型
     const provider = this.data.analysts[0] || 'deepseek';
 
     this.setData({ qaAnswer: '' });
@@ -442,11 +308,9 @@ Page({
     try {
       const res = await api.askAI(question, provider);
       wx.hideLoading();
+
       if (res && res.success) {
-        this.setData({
-          qaAnswer: res.answer || '暂无回答',
-          qaAnswerHtml: mdToHtml(res.answer || ''),
-        });
+        this.setData({ qaAnswer: res.answer || '暂无回答' });
       } else {
         wx.showToast({ title: res?.message || '回答失败', icon: 'none' });
       }
@@ -462,7 +326,9 @@ Page({
 
   onQuickQuestion(e) {
     const q = e.currentTarget.dataset.q;
-    this.setData({ qaQuestion: q, canAsk: true }, () => this.onAskQuestion());
+    this.setData({ qaQuestion: q, canAsk: true }, () => {
+      this.onAskQuestion();
+    });
   },
 
   analysisTypeName(typeKey) {

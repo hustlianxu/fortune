@@ -11,60 +11,17 @@
  *   卖出：newShares = S - N；cost_price 不变；归零则 is_cleared=true
  *        realized_pnl += (sell_price - cost_price) * sell_shares - sell_fee
  *        total_fee += sell_fee
- *   打新中签(ipo_win)：会计处理同买入，并额外扣减账户 cash_balance（中签缴款由券商自动扣收）
- *   红股入账(stock_dividend)：shares += bonus；cost_value 不变；cost_price = cost_value / new_shares 摊薄
- *   拆分/合并(split)：shares × ratio；cost_price ÷ ratio；cost_value 不变
- *   纳税(tax)：扣减账户 cash_balance；若带 product_code 则 realized_pnl -= amount
  *   分红/利息：不影响份额；找对应持仓累加 total_dividend += amount
- *   银证转入/转出/手续费：联动账户 cash_balance，不影响持仓
+ *   转账/手续费交易：不影响持仓
  *
  * 总收益（同花顺口径）：
- *   total_pnl = 浮动盈亏(market_value - cost_value) + realized_pnl + total_dividend
- *   （手续费已计入 cost_value[买入] 与 realized_pnl[卖出]，不重复扣减）
+ *   total_pnl = 浮动盈亏(market_value - cost_value) + realized_pnl + total_dividend - total_fee
  *
  * 幂等：transaction 带 applied_holding 标记，已应用则跳过。
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
-
-// 根据产品代码推断 product_type（用于交易缺类型时兜底）
-function inferProductType(code, accountType) {
-  if (!code) return '';
-  const c = String(code).trim().toUpperCase();
-  if (/^\d{5}$/.test(c)) return 'hk_stock';
-  if (/^[A-Z]/.test(c)) return 'us_stock';
-  if (/^\d{6}$/.test(c)) {
-    if (/^508/.test(c)) return 'reit';
-    if (/^588/.test(c)) return 'etf';
-    if (/^5[012]/.test(c)) return 'etf';
-    if (/^56/.test(c)) return 'etf';
-    if (/^58/.test(c)) return 'reit';
-    if (/^15/.test(c)) return 'etf';
-    if (/^16/.test(c)) return 'lof';
-    if (/^18/.test(c)) return 'reit';
-    if (/^6[08]/.test(c)) return 'stock';
-    if (/^0[03]/.test(c)) return 'stock';
-    if (accountType === 'fund_platform' || accountType === 'fund') return 'fund_mix';
-    return 'stock';
-  }
-  return '';
-}
-
-// 推断交易所
-function inferExchange(code) {
-  if (!code) return '';
-  const c = String(code).trim().toUpperCase();
-  if (/^\d{5}$/.test(c)) return 'HK';
-  if (/^[A-Z]/.test(c)) return 'US';
-  if (/^\d{6}$/.test(c)) {
-    if (/^6[08]/.test(c)) return 'SH';
-    if (/^5[0128]/.test(c)) return 'SH';
-    if (/^0[03]/.test(c)) return 'SZ';
-    if (/^1[568]/.test(c)) return 'SZ';
-  }
-  return '';
-}
 
 /**
  * 重算 total_pnl（在份额/成本/已实现/分红/手续费变化后调用）
@@ -75,38 +32,7 @@ function recomputeTotalPnl(holding, marketValue, costValue) {
   const realized = Number(holding.realized_pnl) || 0;
   const dividend = Number(holding.total_dividend) || 0;
   const fee = Number(holding.total_fee) || 0;
-  return Number((mv - cv + realized + dividend).toFixed(2));
-}
-
-/**
- * 读取持仓 cost_value（null/undefined/NaN 时回退到 shares × cost_price）
- */
-function readCostValue(h) {
-  return (h.cost_value !== null && h.cost_value !== undefined && !isNaN(h.cost_value))
-    ? Number(h.cost_value)
-    : (Number(h.shares) || 0) * (Number(h.cost_price) || 0);
-}
-
-/**
- * 调整账户现金余额（transfer_in/transfer_out/fee/tax 联动）
- * @param {string} account_id
- * @param {string} openid - 调用者 openid，用于归属校验（为空则放行，如定时任务）
- * @param {number} delta - 增减额（正=入账，负=出账）
- */
-async function adjustAccountCash(account_id, openid, delta) {
-  try {
-    const accRes = await db.collection('accounts').doc(account_id).get();
-    const account = accRes.data;
-    if (!account) return;
-    if (openid && account._openid && account._openid !== openid) return;
-    const oldBalance = Number(account.cash_balance) || 0;
-    const newBalance = Number((oldBalance + delta).toFixed(2));
-    await db.collection('accounts').doc(account_id).update({
-      data: { cash_balance: newBalance, updated_at: db.serverDate() },
-    });
-  } catch (err) {
-    console.warn('[adjustAccountCash] error:', err);
-  }
+  return Number((mv - cv + realized + dividend - fee).toFixed(2));
 }
 
 exports.main = async (event) => {
@@ -116,10 +42,6 @@ exports.main = async (event) => {
   }
 
   try {
-    // 当前调用者 openid（用于新建持仓归属 + 查询隔离）
-    const wxContext = cloud.getWXContext();
-    const openid = wxContext.OPENID || '';
-
     // 1. 读取交易
     const txnRes = await db.collection('transactions').doc(transaction_id).get();
     const txn = txnRes.data;
@@ -131,9 +53,6 @@ exports.main = async (event) => {
     if (txn.applied_holding) {
       return { success: true, message: '已应用过，跳过', skipped: true };
     }
-
-    // 归属人优先取交易记录上的 _openid，回退当前调用者
-    const ownerOpenid = txn._openid || openid;
 
     const type = txn.type;
     const fee = Number(txn.fee) || 0;
@@ -148,11 +67,21 @@ exports.main = async (event) => {
         return { success: true, message: '分红/利息缺账户或代码，仅记录', skipped: true };
       }
       const existRes = await db.collection('holdings').where({
-        _openid: ownerOpenid,
         account_id: txn.account_id,
         product_code: txn.product_code,
-      }).limit(1).get();
-      const existing = existRes.data[0];
+      }).get();
+      const existList = (existRes && existRes.data) || [];
+      const existing = existList[0];
+      // 清理历史重复持仓（与 buy/sell 分支保持一致）
+      if (existList.length > 1) {
+        for (let k = 1; k < existList.length; k++) {
+          try {
+            await db.collection('holdings').doc(existList[k]._id).remove();
+          } catch (e) {
+            console.warn('[apply_transaction] dividend dedup remove failed:', e);
+          }
+        }
+      }
       if (!existing) {
         await db.collection('transactions').doc(transaction_id).update({
           data: { applied_holding: true, applied_at: db.serverDate() },
@@ -180,158 +109,8 @@ exports.main = async (event) => {
       return { success: true, message: '已应用分红/利息' };
     }
 
-    // 3. 红股入账（送股）：份额增加，总成本不变，成本价摊薄；无现金流
-    if (type === 'stock_dividend') {
-      if (!txn.account_id || !txn.product_code) {
-        return { success: false, message: '红股入账缺少 account_id 或 product_code' };
-      }
-      const existRes = await db.collection('holdings').where({
-        _openid: ownerOpenid,
-        account_id: txn.account_id,
-        product_code: txn.product_code,
-      }).limit(1).get();
-      const existing = existRes.data[0];
-      if (!existing) {
-        await db.collection('transactions').doc(transaction_id).update({
-          data: { applied_holding: true, applied_at: db.serverDate() },
-        });
-        return { success: true, message: '无对应持仓，红股入账仅记录', warning: true };
-      }
-      const bonusShares = Number(txn.shares) || 0;
-      if (bonusShares <= 0) {
-        return { success: false, message: '红股入账份额无效' };
-      }
-      const oldShares = Number(existing.shares) || 0;
-      const newShares = oldShares + bonusShares;
-      const costValue = readCostValue(existing);
-      const newCost = newShares > 0 ? costValue / newShares : Number(existing.cost_price) || 0;
-      const curPrice = Number(existing.current_price) || 0;
-      const newMarketValue = Number((newShares * curPrice).toFixed(2));
-      const newPnl = Number((newMarketValue - costValue).toFixed(2));
-      const newPnlPercent = costValue > 0 ? Number(((newPnl / costValue) * 100).toFixed(2)) : 0;
-      const newTotalPnl = recomputeTotalPnl(existing, newMarketValue, costValue);
-      await db.collection('holdings').doc(existing._id).update({
-        data: {
-          shares: newShares,
-          cost_price: Number(newCost.toFixed(4)),
-          cost_value: Number(costValue.toFixed(2)),
-          market_value: newMarketValue,
-          pnl: newPnl,
-          pnl_percent: newPnlPercent,
-          total_pnl: newTotalPnl,
-          is_cleared: false,
-          updated_at: db.serverDate(),
-        },
-      });
-      await db.collection('transactions').doc(transaction_id).update({
-        data: { applied_holding: true, applied_at: db.serverDate() },
-      });
-      return { success: true, message: '已应用红股入账' };
-    }
-
-    // 4. 份额拆分/合并：按 ratio 调整份额与成本价，总成本与总资产不变；无现金流
-    //    ratio > 1 为拆分（如 3 = 1拆3），0 < ratio < 1 为合并（如 0.333 = 3合1）
-    if (type === 'split') {
-      if (!txn.account_id || !txn.product_code) {
-        return { success: false, message: '拆分/合并缺少 account_id 或 product_code' };
-      }
-      const existRes = await db.collection('holdings').where({
-        _openid: ownerOpenid,
-        account_id: txn.account_id,
-        product_code: txn.product_code,
-      }).limit(1).get();
-      const existing = existRes.data[0];
-      if (!existing) {
-        await db.collection('transactions').doc(transaction_id).update({
-          data: { applied_holding: true, applied_at: db.serverDate() },
-        });
-        return { success: true, message: '无对应持仓，拆分/合并仅记录', warning: true };
-      }
-      const ratio = Number(txn.ratio) || 0;
-      if (ratio <= 0) {
-        return { success: false, message: '拆分/合并比例无效（ratio 需 >0，如 3=1拆3，0.333=3合1）' };
-      }
-      const oldShares = Number(existing.shares) || 0;
-      const newShares = Number((oldShares * ratio).toFixed(4));
-      const costValue = readCostValue(existing);
-      const oldCost = Number(existing.cost_price) || 0;
-      const newCost = oldCost / ratio;
-      const curPrice = Number(existing.current_price) || 0;
-      const newMarketValue = Number((newShares * curPrice).toFixed(2));
-      const newPnl = Number((newMarketValue - costValue).toFixed(2));
-      const newPnlPercent = costValue > 0 ? Number(((newPnl / costValue) * 100).toFixed(2)) : 0;
-      const newTotalPnl = recomputeTotalPnl(existing, newMarketValue, costValue);
-      await db.collection('holdings').doc(existing._id).update({
-        data: {
-          shares: newShares,
-          cost_price: Number(newCost.toFixed(4)),
-          cost_value: Number(costValue.toFixed(2)),
-          market_value: newMarketValue,
-          pnl: newPnl,
-          pnl_percent: newPnlPercent,
-          total_pnl: newTotalPnl,
-          updated_at: db.serverDate(),
-        },
-      });
-      await db.collection('transactions').doc(transaction_id).update({
-        data: { applied_holding: true, applied_at: db.serverDate() },
-      });
-      return { success: true, message: '已应用拆分/合并' };
-    }
-
-    // 5. 纳税：扣减账户现金余额；若带 product_code 且有对应持仓，同时计入已实现盈亏扣减
-    //    （限售股个税、红利税等：从券商对账单抄入已扣缴税额）
-    if (type === 'tax') {
-      if (!txn.account_id) {
-        return { success: false, message: '纳税缺少 account_id' };
-      }
-      await adjustAccountCash(txn.account_id, ownerOpenid, -amount);
-      if (txn.product_code) {
-        const existRes = await db.collection('holdings').where({
-          _openid: ownerOpenid,
-          account_id: txn.account_id,
-          product_code: txn.product_code,
-        }).limit(1).get();
-        const existing = existRes.data[0];
-        if (existing) {
-          const oldRealized = Number(existing.realized_pnl) || 0;
-          const newRealized = Number((oldRealized - amount).toFixed(2));
-          const mv = Number(existing.market_value) || 0;
-          const cv = readCostValue(existing);
-          const newTotalPnl = recomputeTotalPnl(
-            Object.assign({}, existing, { realized_pnl: newRealized }), mv, cv
-          );
-          await db.collection('holdings').doc(existing._id).update({
-            data: {
-              realized_pnl: newRealized,
-              total_pnl: newTotalPnl,
-              updated_at: db.serverDate(),
-            },
-          });
-        }
-      }
-      await db.collection('transactions').doc(transaction_id).update({
-        data: { applied_holding: true, applied_at: db.serverDate() },
-      });
-      return { success: true, message: '已应用纳税' };
-    }
-
-    // 6. 转入/转出/手续费：仅联动账户现金余额，不影响持仓
-    if (type === 'transfer_in' || type === 'transfer_out' || type === 'fee') {
-      if (!txn.account_id) {
-        return { success: false, message: `${type} 缺少 account_id` };
-      }
-      const delta = type === 'transfer_in' ? amount : -amount;
-      await adjustAccountCash(txn.account_id, ownerOpenid, delta);
-      await db.collection('transactions').doc(transaction_id).update({
-        data: { applied_holding: true, applied_at: db.serverDate() },
-      });
-      const nameMap = { transfer_in: '转入', transfer_out: '转出', fee: '手续费' };
-      return { success: true, message: `已应用${nameMap[type]}` };
-    }
-
-    // 7. 其他未知类型（非买卖/打新中签且未命中上述分支）：仅记录
-    if (type !== 'buy' && type !== 'sell' && type !== 'ipo_win') {
+    // 3. 非买卖且非分红利息：仅记录
+    if (type !== 'buy' && type !== 'sell') {
       await db.collection('transactions').doc(transaction_id).update({
         data: { applied_holding: true, applied_at: db.serverDate() },
       });
@@ -342,26 +121,39 @@ exports.main = async (event) => {
       return { success: false, message: '交易缺少 account_id 或 product_code' };
     }
 
-    const shares = Math.abs(Number(txn.shares) || 0);
+    const shares = Number(txn.shares) || 0;
     const price = Number(txn.price) || 0;
     if (shares <= 0) {
       return { success: false, message: '交易份额无效' };
     }
 
-    // 4. 查询对应持仓（_openid + account_id + product_code）
+    // 4. 查询对应持仓（account_id + product_code）
+    //    使用聚合查询拉取全部匹配项（处理历史可能存在的重复持仓）：
+    //    - 若有多条，保留第一条用于更新，其余视为脏数据待清理
+    //    - 配合 db.runTransaction 保证「查无则建」的原子性，避免并发 apply 时双建持仓
     const existRes = await db.collection('holdings').where({
-      _openid: ownerOpenid,
       account_id: txn.account_id,
       product_code: txn.product_code,
-    }).limit(1).get();
+    }).get();
+    const existList = (existRes && existRes.data) || [];
+    const existing = existList[0] || null;
 
-    const existing = existRes.data[0];
+    // 清理历史可能存在的重复持仓（同 account_id + product_code 多条）：
+    // 只保留第一条，其余直接删除，避免「语音录入生成两个重复持仓」
+    if (existList.length > 1) {
+      for (let k = 1; k < existList.length; k++) {
+        try {
+          await db.collection('holdings').doc(existList[k]._id).remove();
+        } catch (e) {
+          console.warn('[apply_transaction] dedup remove failed:', e);
+        }
+      }
+    }
+
     let resultHolding;
 
-    if (type === 'buy' || type === 'ipo_win') {
+    if (type === 'buy') {
       // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
-      // 打新中签 ipo_win 会计处理等同 buy（加权平均成本），并额外扣减账户现金余额
-      //   （中签缴款由券商从资金账户自动扣收，与普通买入的银证结算不同）
       const buyCost = shares * price + fee;
       if (existing) {
         const oldShares = Number(existing.shares) || 0;
@@ -373,25 +165,17 @@ exports.main = async (event) => {
         // 累计手续费
         const oldFee = Number(existing.total_fee) || 0;
         const newTotalFee = oldFee + fee;
-        // 重算市值/浮动盈亏/总收益：用 newShares × current_price 重算市值，
-        // 不能复用旧 market_value（份额已变，旧值已失效）
-        const curPrice = Number(existing.current_price) || price;
-        const newMarketValue = Number((newShares * curPrice).toFixed(2));
-        const newPnl = Number((newMarketValue - newCostValue).toFixed(2));
-        const newPnlPercent = newCostValue > 0
-          ? Number(((newPnl / newCostValue) * 100).toFixed(2)) : 0;
+        // 重算浮动盈亏 & 总收益
+        const mv = Number(existing.market_value) || 0;
         const newTotalPnl = recomputeTotalPnl(
           { ...existing, total_fee: newTotalFee },
-          newMarketValue, newCostValue
+          mv, newCostValue
         );
 
         const updateData = {
           shares: newShares,
           cost_price: Number(newCost.toFixed(4)),
           cost_value: Number(newCostValue.toFixed(2)),
-          market_value: newMarketValue,
-          pnl: newPnl,
-          pnl_percent: newPnlPercent,
           total_fee: Number(newTotalFee.toFixed(2)),
           total_pnl: newTotalPnl,
           is_cleared: false,
@@ -405,12 +189,11 @@ exports.main = async (event) => {
         const newCostPrice = shares > 0 ? buyCost / shares : price;
         const marketValue = Number((shares * price).toFixed(2));
         const newHolding = {
-          _openid: ownerOpenid,
           account_id: txn.account_id,
           product_code: txn.product_code,
           product_name: txn.product_name || txn.product_code,
-          product_type: txn.product_type || inferProductType(txn.product_code) || '',
-          exchange: txn.exchange || inferExchange(txn.product_code) || '',
+          product_type: txn.product_type || '',
+          exchange: txn.exchange || '',
           shares: shares,
           cost_price: Number(newCostPrice.toFixed(4)),
           cost_value: Number(buyCost.toFixed(2)),
@@ -431,10 +214,6 @@ exports.main = async (event) => {
         };
         const addRes = await db.collection('holdings').add({ data: newHolding });
         resultHolding = { ...newHolding, _id: addRes._id };
-      }
-      // 打新中签缴款由券商从资金账户自动扣收，联动扣减账户现金余额
-      if (type === 'ipo_win') {
-        await adjustAccountCash(txn.account_id, ownerOpenid, -buyCost);
       }
     } else {
       // 卖出
@@ -461,31 +240,24 @@ exports.main = async (event) => {
       const oldFee = Number(existing.total_fee) || 0;
       const newTotalFee = oldFee + fee;
 
-      // 重算市值/浮动盈亏/总收益：用 finalShares × current_price 重算市值，
-      // 不能复用旧 market_value（份额已变，旧值已失效）
-      const curPrice = Number(existing.current_price) || price;
-      const newMarketValue = isCleared ? 0
-        : Number((finalShares * curPrice).toFixed(2));
-      const newPnl = Number((newMarketValue - newCostValue).toFixed(2));
-      const newPnlPercent = newCostValue > 0
-        ? Number(((newPnl / newCostValue) * 100).toFixed(2)) : 0;
-      const newTotalPnl = recomputeTotalPnl(
-        { ...existing, realized_pnl: newRealized, total_fee: newTotalFee },
-        newMarketValue, newCostValue
-      );
-
       const updateData = {
         shares: finalShares,
         is_cleared: isCleared,
         cost_value: newCostValue,
-        market_value: newMarketValue,
-        pnl: newPnl,
-        pnl_percent: newPnlPercent,
         realized_pnl: Number(newRealized.toFixed(2)),
         total_fee: Number(newTotalFee.toFixed(2)),
-        total_pnl: newTotalPnl,
         updated_at: db.serverDate(),
       };
+
+      const mv = isCleared ? 0 : (Number(existing.market_value) || 0);
+      const newTotalPnl = recomputeTotalPnl(
+        { ...existing, realized_pnl: newRealized, total_fee: newTotalFee },
+        mv, newCostValue
+      );
+      updateData.total_pnl = newTotalPnl;
+      if (isCleared) {
+        updateData.market_value = 0;
+      }
 
       await db.collection('holdings').doc(existing._id).update({ data: updateData });
       resultHolding = { ...existing, ...updateData };

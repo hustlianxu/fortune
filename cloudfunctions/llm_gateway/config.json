@@ -3,6 +3,6 @@
     "openapi": []
   },
   "triggers": [],
-  "env": "cloud1-d6geurbo125795334",
+  "env": "your-env-id",
   "timeout": 60
 }

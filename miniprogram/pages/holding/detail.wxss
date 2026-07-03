@@ -17,23 +17,11 @@
 .price-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   margin-bottom: 24rpx;
 }
-.price-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
+.price-item { text-align: center; flex: 1; }
 .price-label { font-size: 22rpx; color: var(--text-tertiary); display: block; }
-.price-value {
-  font-size: 32rpx;
-  font-weight: 700;
-  display: block;
-  margin-top: 4rpx;
-  white-space: nowrap;
-}
+.price-value { font-size: 32rpx; font-weight: 700; display: block; margin-top: 4rpx; }
 
 /* ═══════ 总收益卡（同花顺口径） ═══════ */
 .total-pnl-card {
@@ -131,7 +119,7 @@
 }
 .btn-rebuild {
   flex: 1;
-  background: transparent;
+  background: var(--primary-soft);
   color: var(--primary-color);
   padding: 20rpx;
   border-radius: var(--radius-sm);

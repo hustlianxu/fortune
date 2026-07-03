@@ -275,6 +275,7 @@ Page({
 
   /** 确认导入：用解析后的 trades 走 mode=json 写入 */
   async onConfirmImport() {
+    if (this.data.importing) return;       // 防止按钮被双击导致重复导入
     if (this.data.parsedTrades.length === 0) {
       wx.showToast({ title: '没有可导入的交易', icon: 'none' });
       return;
@@ -290,6 +291,7 @@ Page({
       content: `将导入 ${this.data.parsedTrades.length} 笔交易到「${this.data.accountNames[this.data.accountIndex]}」账户，并自动同步持仓。是否继续？`,
       success: async (r) => {
         if (!r.confirm) return;
+        // 立即锁定按钮，避免模态弹层关闭后用户再次点击造成重复提交
         this.setData({ importing: true });
         wx.showLoading({ title: '导入中...', mask: true });
         try {
@@ -308,6 +310,8 @@ Page({
             trade_date: t.trade_date,
             note: t.note,
           }));
+          // 生成一次性 request_id：作为云函数幂等去重 key，避免双击/网络重试导致重复持仓
+          const request_id = 'imp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
           const result = await wx.cloud.callFunction({
             name: 'parse_trades_by_text',
             data: {
@@ -315,17 +319,22 @@ Page({
               json: cleanTrades,
               account_id,
               dry_run: false,
+              request_id,
             },
+            timeout: 60000,
           });
           wx.hideLoading();
           const res = result.result || {};
           if (res.success) {
             let content = res.message || `成功导入 ${res.imported || 0} 笔`;
+            if (res.deduped) {
+              content = '本次导入已存在，未重复写入（已自动跳过）';
+            }
             if (res.warnings && res.warnings.length > 0) {
               content += '\n\n注意事项：\n' + res.warnings.slice(0, 5).map(w => '• ' + w).join('\n');
             }
             wx.showModal({
-              title: '导入完成',
+              title: res.deduped ? '已跳过重复导入' : '导入完成',
               content: content,
               showCancel: false,
               success: () => {

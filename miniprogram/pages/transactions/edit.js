@@ -5,7 +5,6 @@
  */
 const { TRANSACTION_TYPES } = require('../../utils/constants');
 const { calcTradeFee, hasFeeRates } = require('../../utils/fee');
-const { inferProductType, inferExchange } = require('../../utils/inferProduct');
 
 const db = wx.cloud.database();
 
@@ -31,7 +30,6 @@ Page({
       price: '',
       amount: '',
       fee: '',
-      ratio: '',
       trade_date: '',
       note: '',
     },
@@ -89,11 +87,6 @@ Page({
           patch['form.type'] = 'buy';
         }
       }
-      // 通过 url 指定交易类型（如银证转入/转出快捷入口）
-      if (options.type && typeKeys.indexOf(options.type) >= 0) {
-        patch.typeIndex = typeKeys.indexOf(options.type);
-        patch['form.type'] = options.type;
-      }
       if (Object.keys(patch).length) this.setData(patch);
     }
   },
@@ -137,7 +130,6 @@ Page({
           price: t.price != null ? String(t.price) : '',
           amount: t.amount != null ? String(t.amount) : '',
           fee: t.fee != null ? String(t.fee) : '',
-          ratio: t.ratio != null ? String(t.ratio) : '',
           trade_date: t.trade_date || '',
           note: t.note || '',
         },
@@ -191,8 +183,6 @@ Page({
           const p = products[0];
           this.setData({
             'form.product_name': p.name || '',
-            'form.product_type': p.type || '',
-            'form.exchange': p.exchange || '',
             codeLookupHint: `找到: ${p.name} (${p.code})`,
           });
         } else if (products.length > 1) {
@@ -201,14 +191,7 @@ Page({
             codeLookupHint: `找到 ${products.length} 个匹配，请选择：`,
           });
         } else {
-          // 未匹配到产品时，按代码推断 product_type/exchange 兜底
-          const inferredType = inferProductType(code);
-          const inferredEx = inferExchange(code);
-          this.setData({
-            'form.product_type': inferredType,
-            'form.exchange': inferredEx,
-            codeLookupHint: inferredType ? `未匹配到产品，已按代码推断为${inferredType}` : '未匹配到产品',
-          });
+          this.setData({ codeLookupHint: '未匹配到产品' });
         }
       } catch (err) {
         console.error('[onCodeInput] lookup error:', err);
@@ -247,8 +230,6 @@ Page({
     this.setData({
       'form.product_code': ds.code || '',
       'form.product_name': ds.name || '',
-      'form.product_type': ds.type || '',
-      'form.exchange': ds.exchange || '',
       suggestions: [],
       codeSuggestions: [],
       codeLookupHint: '',
@@ -263,8 +244,6 @@ Page({
     this.setData({
       'form.product_code': ds.code || '',
       'form.product_name': ds.name || '',
-      'form.product_type': ds.type || '',
-      'form.exchange': ds.exchange || '',
       codeSuggestions: [],
       codeLookupHint: '',
     });
@@ -292,10 +271,6 @@ Page({
   onFeeInput(e) {
     // 用户手动编辑手续费 → 标记为已触碰，后续不再自动覆盖
     this.setData({ 'form.fee': e.detail.value, _feeTouched: true, feeHint: '' });
-  },
-
-  onRatioInput(e) {
-    this.setData({ 'form.ratio': e.detail.value });
   },
 
   /**
@@ -366,54 +341,43 @@ Page({
       return;
     }
 
+    // 转入/转出/手续费/利息 允许只有金额；买入/卖出/分红建议填写产品+份额
     const type = form.type;
-    // 需要产品代码才能匹配持仓的类型
-    const needsCode = ['buy', 'sell', 'ipo_win', 'dividend', 'interest', 'stock_dividend', 'split'].indexOf(type) >= 0;
-    if (needsCode && !form.product_code) {
+    const isTrade = (type === 'buy' || type === 'sell');
+    if (isTrade && !form.product_code) {
       wx.showToast({ title: '请输入产品代码', icon: 'none' });
+      return;
+    }
+
+    const amount = parseFloat(form.amount);
+    if (isNaN(amount) || amount <= 0) {
+      wx.showToast({ title: '请输入有效金额', icon: 'none' });
       return;
     }
 
     const shares = form.shares ? parseFloat(form.shares) : 0;
     const price = form.price ? parseFloat(form.price) : 0;
-    const amount = form.amount ? parseFloat(form.amount) : 0;
     const fee = form.fee ? parseFloat(form.fee) : 0;
-    const ratio = form.ratio ? parseFloat(form.ratio) : 0;
-
-    // 按类型校验关键数值字段
-    if (type === 'buy' || type === 'sell' || type === 'ipo_win') {
-      if (isNaN(amount) || amount <= 0) {
-        wx.showToast({ title: '请输入有效金额', icon: 'none' });
-        return;
-      }
-    } else if (type === 'dividend' || type === 'interest') {
-      // 现金分红/利息：仅需金额
-      if (isNaN(amount) || amount <= 0) {
-        wx.showToast({ title: '请输入分红/利息金额', icon: 'none' });
-        return;
-      }
-    } else if (type === 'stock_dividend') {
-      // 红股入账：仅需红股份额，无现金流
-      if (isNaN(shares) || shares <= 0) {
-        wx.showToast({ title: '请输入红股份额', icon: 'none' });
-        return;
-      }
-    } else if (type === 'split') {
-      // 拆分/合并：仅需 ratio
-      if (isNaN(ratio) || ratio <= 0) {
-        wx.showToast({ title: '请输入拆分比例(>0)', icon: 'none' });
-        return;
-      }
-    } else if (type === 'tax' || type === 'transfer_in' || type === 'transfer_out' || type === 'fee') {
-      // 纳税/转入/转出/手续费：仅需金额
-      if (isNaN(amount) || amount <= 0) {
-        wx.showToast({ title: '请输入有效金额', icon: 'none' });
-        return;
-      }
-    }
 
     wx.showLoading({ title: '保存中...' });
     try {
+      // 编辑模式下：先抓取原交易记录，用于判断 account_id / product_code 是否变更
+      // —— 这是「跨账户移动交易记录」场景的关键：变更后必须重建老账户和新账户两侧的持仓
+      let oldAccount = '';
+      let oldProduct = '';
+      let oldType = '';
+      if (isEdit) {
+        try {
+          const oldRes = await db.collection('transactions').doc(transactionId).get();
+          const old = oldRes.data || {};
+          oldAccount = old.account_id || '';
+          oldProduct = old.product_code || '';
+          oldType = old.type || '';
+        } catch (e) {
+          console.warn('[Transaction Edit] load old for diff failed:', e);
+        }
+      }
+
       const data = {
         account_id: form.account_id,
         type,
@@ -421,11 +385,10 @@ Page({
         product_name: form.product_name || '',
         product_type: form.product_type || '',
         exchange: form.exchange || '',
-        shares: isNaN(shares) ? 0 : Number(shares.toFixed(4)),
-        price: isNaN(price) ? 0 : Number(price.toFixed(4)),
-        amount: isNaN(amount) ? 0 : Number(amount.toFixed(2)),
+        shares,
+        price,
+        amount,
         fee: isNaN(fee) ? 0 : Number(fee.toFixed(2)),
-        ratio: isNaN(ratio) ? 0 : Number(ratio.toFixed(4)),
         trade_date: form.trade_date,
         note: form.note || '',
         updated_at: db.serverDate(),
@@ -454,9 +417,24 @@ Page({
       }
 
       let newTxnId = '';
+      let accountChanged = false;   // 编辑后 account_id 或 product_code 改变
       if (isEdit) {
         await db.collection('transactions').doc(transactionId).update({ data });
         newTxnId = transactionId;
+        // 编辑后若影响持仓字段（account_id / product_code / type / shares / price / fee / amount）改变，
+        // 必须重建两侧持仓，否则会出现：A 账户没扣，B 账户没加
+        accountChanged = (oldAccount && oldAccount !== form.account_id)
+          || (oldProduct && oldProduct !== (form.product_code || ''));
+        // 编辑修改了交易的关键字段后，原 apply 状态需要失效并重建
+        // （rebuild 是幂等的，从全量交易回放，比逐笔 apply 更可靠）
+        if (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest') {
+          // 强制让被编辑的交易重新被回放（去掉 applied_holding）
+          try {
+            await db.collection('transactions').doc(transactionId).update({
+              data: { applied_holding: false },
+            });
+          } catch (e) {}
+        }
       } else {
         const addRes = await db.collection('transactions').add({
           data: {
@@ -471,17 +449,18 @@ Page({
 
       wx.hideLoading();
 
-      // 新增交易均自动应用到持仓/账户（apply_transaction 内部按类型分发：
-      // buy/sell 更新持仓、stock_dividend/split 调整份额与成本、tax/transfer类联动账户现金）；
-      // 编辑模式不自动应用，避免与历史应用重复
-      if (!isEdit) {
+      // 触发持仓同步：
+      // - 新建买卖：单笔 apply 即可
+      // - 编辑交易（尤其是跨账户移动）：必须重建两侧持仓，否则 B 账户看不到刚挪过来的记录
+      const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest');
+      if (!isEdit && affectsHolding) {
         try {
           const applyRes = await wx.cloud.callFunction({
             name: 'apply_transaction',
             data: { transaction_id: newTxnId },
           });
           if (applyRes.result && applyRes.result.success) {
-            wx.showToast({ title: '已记录并同步', icon: 'success' });
+            wx.showToast({ title: '已记录并同步持仓', icon: 'success' });
           } else {
             wx.showToast({ title: '已记录', icon: 'success' });
           }
@@ -491,6 +470,29 @@ Page({
             ? '已记录（请部署 apply_transaction 云函数）'
             : '已记录（持仓同步失败）';
           wx.showToast({ title: msg, icon: 'none' });
+        }
+      } else if (isEdit && affectsHolding) {
+        // 编辑模式：用 rebuild 重建涉及到的所有 (account, product) 持仓
+        // 同时处理跨账户移动：A 账户老持仓需要剔除这条交易，B 账户新持仓需要纳入
+        const rebuildSet = new Set();
+        rebuildSet.add(`${form.account_id}|${form.product_code || ''}`);
+        if (oldAccount && oldProduct) {
+          rebuildSet.add(`${oldAccount}|${oldProduct}`);
+        }
+        try {
+          for (const key of rebuildSet) {
+            const [acc, code] = key.split('|');
+            if (!acc || !code) continue;
+            await wx.cloud.callFunction({
+              name: 'rebuild_holdings',
+              data: { account_id: acc, product_code: code },
+            });
+          }
+          const tip = accountChanged ? '已保存，两侧持仓已重建' : '已保存，持仓已同步';
+          wx.showToast({ title: tip, icon: 'success' });
+        } catch (rebuildErr) {
+          console.warn('[Transaction Edit] rebuild failed:', rebuildErr);
+          wx.showToast({ title: '已保存（持仓同步失败，请到「我的」整体重建）', icon: 'none' });
         }
       } else {
         wx.showToast({ title: '保存成功', icon: 'success' });
@@ -508,17 +510,32 @@ Page({
     const res = await new Promise(resolve => {
       wx.showModal({
         title: '删除确认',
-        content: '确定要删除这条交易记录吗？',
+        content: '确定要删除这条交易记录吗？删除后对应持仓将自动修正。',
         success: r => resolve(r.confirm),
       });
     });
     if (!res) return;
 
-    wx.showLoading({ title: '删除中...' });
+    wx.showLoading({ title: '删除中...', mask: true });
     try {
+      // 先抓取待删交易的 account_id + product_code，用于删除后精准重建对应持仓
+      const txnRes = await db.collection('transactions').doc(this.data.transactionId).get();
+      const txn = txnRes.data || {};
       await db.collection('transactions').doc(this.data.transactionId).remove();
+
+      // 删除后立即重建该 (account, product) 持仓，避免出现持仓数量与交易明细不一致
+      if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest'].indexOf(txn.type) >= 0) {
+        try {
+          await wx.cloud.callFunction({
+            name: 'rebuild_holdings',
+            data: { account_id: txn.account_id, product_code: txn.product_code },
+          });
+        } catch (e) {
+          console.warn('[Transaction Edit] post-delete rebuild failed:', e);
+        }
+      }
       wx.hideLoading();
-      wx.showToast({ title: '已删除', icon: 'success' });
+      wx.showToast({ title: '已删除，持仓已修正', icon: 'success' });
       setTimeout(() => wx.navigateBack(), 800);
     } catch (err) {
       console.error('[Transaction Edit] delete error:', err);

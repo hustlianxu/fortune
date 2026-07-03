@@ -22,42 +22,6 @@ const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
-// 根据产品代码推断 product_type（用于交易缺类型时兜底）
-function inferProductType(code) {
-  if (!code) return '';
-  const c = String(code).trim().toUpperCase();
-  if (/^\d{5}$/.test(c)) return 'hk_stock';
-  if (/^[A-Z]/.test(c)) return 'us_stock';
-  if (/^\d{6}$/.test(c)) {
-    if (/^508/.test(c)) return 'reit';
-    if (/^588/.test(c)) return 'etf';
-    if (/^5[012]/.test(c)) return 'etf';
-    if (/^56/.test(c)) return 'etf';
-    if (/^58/.test(c)) return 'reit';
-    if (/^15/.test(c)) return 'etf';
-    if (/^16/.test(c)) return 'lof';
-    if (/^18/.test(c)) return 'reit';
-    if (/^6[08]/.test(c)) return 'stock';
-    if (/^0[03]/.test(c)) return 'stock';
-    return 'stock';
-  }
-  return '';
-}
-
-function inferExchange(code) {
-  if (!code) return '';
-  const c = String(code).trim().toUpperCase();
-  if (/^\d{5}$/.test(c)) return 'HK';
-  if (/^[A-Z]/.test(c)) return 'US';
-  if (/^\d{6}$/.test(c)) {
-    if (/^6[08]/.test(c)) return 'SH';
-    if (/^5[0128]/.test(c)) return 'SH';
-    if (/^0[03]/.test(c)) return 'SZ';
-    if (/^1[568]/.test(c)) return 'SZ';
-  }
-  return '';
-}
-
 // 云数据库单次 get 上限 100 条，需分页拉取
 const PAGE_SIZE = 100;
 
@@ -80,13 +44,8 @@ exports.main = async (event) => {
   const { account_id, product_code } = event || {};
 
   try {
-    // 当前调用者 openid（用于数据隔离 + 新建持仓归属）
-    const wxContext = cloud.getWXContext();
-    const openid = wxContext.OPENID || '';
-
-    // 1. 构建查询条件（按 openid 隔离，仅回放当前用户的交易）
+    // 1. 构建查询条件
     const where = {};
-    if (openid) where._openid = openid;
     if (account_id) where.account_id = account_id;
     if (product_code) where.product_code = product_code;
 
@@ -117,8 +76,8 @@ exports.main = async (event) => {
           account_id: t.account_id,
           product_code: t.product_code,
           product_name: t.product_name || t.product_code,
-          product_type: t.product_type || inferProductType(t.product_code) || '',
-          exchange: t.exchange || inferExchange(t.product_code) || '',
+          product_type: t.product_type || '',
+          exchange: t.exchange || '',
           shares: 0,
           cost_price: 0,
           cost_value: 0,
@@ -131,15 +90,14 @@ exports.main = async (event) => {
       }
       const h = holdingsMap[key];
 
-      if (type === 'buy' || type === 'sell' || type === 'ipo_win') {
-        const shares = Math.abs(Number(t.shares) || 0);
+      if (type === 'buy' || type === 'sell') {
+        const shares = Number(t.shares) || 0;
         const price = Number(t.price) || 0;
         const fee = Number(t.fee) || 0;
         if (shares <= 0) continue;
 
-        if (type === 'buy' || type === 'ipo_win') {
+        if (type === 'buy') {
           // 买入成本 = 份额 × 单价 + 手续费（同花顺口径）
-          // 打新中签 ipo_win 会计处理等同 buy
           const buyCost = shares * price + fee;
           const oldShares = h.shares;
           const oldCostValue = h.cost_value;
@@ -175,46 +133,32 @@ exports.main = async (event) => {
         // 分红/利息：累加 total_dividend
         const amount = Number(t.amount) || 0;
         h.total_dividend = Number((h.total_dividend + amount).toFixed(2));
-      } else if (type === 'stock_dividend') {
-        // 红股入账（送股）：份额增加，总成本不变，成本价摊薄
-        const bonusShares = Math.abs(Number(t.shares) || 0);
-        if (bonusShares > 0 && h.shares + bonusShares > 0) {
-          const newShares = h.shares + bonusShares;
-          h.cost_price = Number((h.cost_value / newShares).toFixed(4));
-          h.shares = newShares;
-          h.is_cleared = false;
-        }
-      } else if (type === 'split') {
-        // 份额拆分/合并：按 ratio 调整份额与成本价，总成本不变
-        // ratio > 1 拆分（如 3=1拆3），0 < ratio < 1 合并（如 0.333=3合1）
-        const ratio = Number(t.ratio) || 0;
-        if (ratio > 0) {
-          h.shares = Number((h.shares * ratio).toFixed(4));
-          h.cost_price = Number((h.cost_price / ratio).toFixed(4));
-          h.cost_value = Number((h.shares * h.cost_price).toFixed(2));
-        }
-      } else if (type === 'tax') {
-        // 纳税：计入已实现盈亏扣减（限售股个税、红利税等）
-        const amount = Number(t.amount) || 0;
-        h.realized_pnl = Number((h.realized_pnl - amount).toFixed(2));
       }
-      // 其他类型（转入/转出/手续费，仅影响账户现金余额，不影响持仓）跳过
+      // 其他类型（转账/手续费交易）跳过
     }
 
     // 4. upsert 到 holdings
     let rebuilt = 0;
     let cleared = 0;
+    let deduped = 0;
     const keys = Object.keys(holdingsMap);
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓（按 openid 隔离）
-      const existWhere = {
+      // 查询现有持仓（拉取全部，处理重复持仓）
+      const existRes = await db.collection('holdings').where({
         account_id: h.account_id,
         product_code: h.product_code,
-      };
-      if (openid) existWhere._openid = openid;
-      const existRes = await db.collection('holdings').where(existWhere).limit(1).get();
+      }).get();
+      const existList = (existRes && existRes.data) || [];
+
+      // 用现有持仓的 current_price 重算 market_value / pnl / total_pnl，避免重建后还要刷行情才同步
+      const curPrice = existList.length > 0 ? (Number(existList[0].current_price) || 0) : h.cost_price;
+      const marketValue = Number((h.shares * curPrice).toFixed(2));
+      const pnl = Number((marketValue - h.cost_value).toFixed(2));
+      const pnlPercent = h.cost_value > 0 ? Number(((pnl / h.cost_value) * 100).toFixed(2)) : 0;
+      // 总收益 = 浮动 + 已实现 + 分红 - 手续费（同花顺口径）
+      const totalPnl = Number((pnl + h.realized_pnl + h.total_dividend - h.total_fee).toFixed(2));
 
       const updateData = {
         shares: h.shares,
@@ -226,33 +170,35 @@ exports.main = async (event) => {
         realized_pnl: h.realized_pnl,
         total_dividend: h.total_dividend,
         total_fee: h.total_fee,
-        // 补全 product_type/exchange（仅当现有持仓缺失时写入，不覆盖用户手填值）
-        product_type: h.product_type || inferProductType(h.product_code) || '',
-        exchange: h.exchange || inferExchange(h.product_code) || '',
+        market_value: marketValue,
+        pnl: pnl,
+        pnl_percent: pnlPercent,
+        total_pnl: totalPnl,
         updated_at: db.serverDate(),
       };
 
-      if (existRes.data.length > 0) {
-        // 保留现有的 current_price/market_value 等行情字段，仅更新份额/成本/累计字段
-        // total_pnl 等行情刷新时由 sync_prices 重算
-        // product_type/exchange 仅在现有持仓该字段为空时补全，不覆盖用户手填值
-        const existH = existRes.data[0];
-        if (existH.product_type) delete updateData.product_type;
-        if (existH.exchange) delete updateData.exchange;
-        await db.collection('holdings').doc(existH._id).update({ data: updateData });
+      if (existList.length > 0) {
+        // 保留第一条，更新份额/成本/累计字段 + 即时重算 market_value/pnl/total_pnl
+        await db.collection('holdings').doc(existList[0]._id).update({ data: updateData });
+        // 清理历史重复持仓（同 account_id + product_code 的多余 doc），修复「语音录入生成两个重复持仓」
+        if (existList.length > 1) {
+          for (let k = 1; k < existList.length; k++) {
+            try {
+              await db.collection('holdings').doc(existList[k]._id).remove();
+              deduped++;
+            } catch (e) {
+              console.warn('[rebuild_holdings] dedup remove failed:', e);
+            }
+          }
+        }
       } else {
         // 新建
         const newHolding = Object.assign({}, updateData, {
-          _openid: openid,
           account_id: h.account_id,
           product_code: h.product_code,
           product_type: h.product_type,
           exchange: h.exchange,
-          current_price: h.cost_price,
-          market_value: Number((h.shares * h.cost_price).toFixed(2)),
-          pnl: 0,
-          pnl_percent: 0,
-          total_pnl: 0,
+          current_price: curPrice,
           daily_change: 0,
           note: '',
           created_at: db.serverDate(),
@@ -280,9 +226,10 @@ exports.main = async (event) => {
 
     return {
       success: true,
-      message: `重建完成：${rebuilt} 个持仓，${cleared} 个已清仓，标记 ${marked} 笔交易`,
+      message: `重建完成：${rebuilt} 个持仓，${cleared} 个已清仓，清理重复持仓 ${deduped} 个，标记 ${marked} 笔交易`,
       rebuilt,
       cleared,
+      deduped,
       marked,
       totalTxns: txns.length,
     };

@@ -15,13 +15,12 @@
       <view
         wx:for="{{configuredProviders}}"
         wx:key="key"
-        class="provider-chip {{analystSelected[item.key] ? 'selected' : ''}}"
+        class="provider-chip {{analysts.indexOf(item.key) >= 0 ? 'selected' : ''}}"
         bindtap="onToggleAnalyst"
         data-key="{{item.key}}"
       >
-        <image class="chip-icon" src="../../images/providers/provider_{{item.key}}{{analystSelected[item.key] ? '_active' : ''}}.png" mode="aspectFit"></image>
+        <image class="chip-icon" src="../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
         <text class="chip-name">{{item.name}}</text>
-        <text class="chip-check" wx:if="{{analystSelected[item.key]}}">✓</text>
       </view>
     </scroll-view>
     <view class="provider-status unconfigured" wx:else>
@@ -31,7 +30,7 @@
       已选 {{analysts.length}} 个分析模型
     </view>
 
-    <!-- 汇总模型 -->
+    <!-- 汇总模型：仅当选择 >1 个分析师时显示 -->
     <view class="synth-row" wx:if="{{analysts.length > 1}}">
       <text class="synth-label">汇总模型</text>
       <picker bindchange="onSynthChange" value="{{synthIndex}}" range="{{synthNames}}">
@@ -86,12 +85,19 @@
 
   <!-- 开始分析按钮 -->
   <view class="card">
-    <button class="btn-primary" bindtap="onStartAnalysis" disabled="{{!canAnalyze || analyzing}}">
-      {{analyzing ? '分析中...' : (timedOut ? '继续分析' : '开始分析')}}
+    <button class="btn-primary" bindtap="onStartAnalysis" disabled="{{!canAnalyze}}">
+      {{analyzing ? '分析中...' : '开始分析'}}
     </button>
-    <text class="progress-hint" wx:if="{{progress}}">{{progress}}</text>
     <text class="btn-hint" wx:if="{{!providerConfigured}}">请先配置 API Key</text>
     <text class="btn-hint" wx:elif="{{!summary.holdings || summary.holdings.length === 0}}">请先录入持仓数据</text>
+  </view>
+
+  <!-- 分析超时提示 -->
+  <view class="card" wx:if="{{hasPendingReport}}">
+    <view class="pending-hint">
+      <text class="pending-icon">⏳</text>
+      <text class="pending-text">{{pendingHint}}</text>
+    </view>
   </view>
 
   <!-- 分析结果 -->
@@ -104,49 +110,129 @@
       <text>风险等级: </text>
       <text class="risk-badge">{{result.riskLevel}}</text>
     </view>
-
-    <!-- 摘要（Markdown 渲染） -->
-    <view class="result-summary" wx:if="{{result.summaryHtml}}">
-      <rich-text nodes="{{result.summaryHtml}}"></rich-text>
-    </view>
-
-    <!-- 关键发现 -->
-    <view class="result-findings" wx:if="{{result.keyFindings && result.keyFindings.length > 0}}">
+    <view class="result-summary">{{result.summary}}</view>
+    <view class="result-findings" wx:if="{{result.findingBlocks && result.findingBlocks.length > 0}}">
       <view class="findings-title">关键发现</view>
-      <view wx:for="{{result.keyFindings}}" wx:for-item="finding" wx:key="*this" class="finding-item">
+      <view wx:for="{{result.findingBlocks}}" wx:for-item="fb" wx:for-index="fIdx" wx:key="fIdx" class="finding-item">
         <text class="finding-bullet">•</text>
-        <text>{{finding}}</text>
+        <view class="finding-body">
+          <block wx:for="{{fb}}" wx:for-item="blk" wx:key="blkIndex" wx:for-index="blkIndex">
+            <view wx:if="{{blk.type === 'paragraph'}}" class="md-para">
+              <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx" wx:for-index="inIdx"
+                class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}} {{in.color === 'primary' ? 'md-section-tag' : ''}}">{{in.text}}</text>
+            </view>
+            <view wx:elif="{{blk.type === 'list'}}" class="md-list">
+              <view wx:for="{{blk.items}}" wx:for-item="it" wx:key="itIdx" wx:for-index="itIdx" class="md-list-item">
+                <text class="md-list-marker">{{blk.ordered ? (itIdx + 1 + '.') : '·'}}</text>
+                <view class="md-list-text">
+                  <text wx:for="{{it}}" wx:for-item="in" wx:key="inIdx2" wx:for-index="inIdx2"
+                    class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+                </view>
+              </view>
+            </view>
+            <view wx:else class="md-para">
+              <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx3" wx:for-index="inIdx3"
+                class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+            </view>
+          </block>
+        </view>
       </view>
     </view>
-
-    <!-- 详细报告（Markdown 渲染） -->
-    <view class="result-content" wx:if="{{result.contentHtml}}">
-      <rich-text nodes="{{result.contentHtml}}"></rich-text>
+    <view class="result-content" wx:if="{{result.contentBlocks && result.contentBlocks.length > 0}}">
+      <block wx:for="{{result.contentBlocks}}" wx:for-item="blk" wx:key="blkIdx" wx:for-index="blkIdx">
+        <view wx:if="{{blk.type === 'heading'}}" class="md-heading md-h{{blk.level}}">
+          <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx" wx:for-index="inIdx"
+            class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}} {{in.color === 'primary' ? 'md-section-tag' : ''}}">{{in.text}}</text>
+        </view>
+        <view wx:elif="{{blk.type === 'paragraph'}}" class="md-para">
+          <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx2" wx:for-index="inIdx2"
+            class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}} {{in.color === 'primary' ? 'md-section-tag' : ''}}">{{in.text}}</text>
+        </view>
+        <view wx:elif="{{blk.type === 'list'}}" class="md-list">
+          <view wx:for="{{blk.items}}" wx:for-item="it" wx:key="itIdx" wx:for-index="itIdx" class="md-list-item">
+            <text class="md-list-marker">{{blk.ordered ? (itIdx + 1 + '.') : '·'}}</text>
+            <view class="md-list-text">
+              <text wx:for="{{it}}" wx:for-item="in" wx:key="inIdx3" wx:for-index="inIdx3"
+                class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+            </view>
+          </view>
+        </view>
+        <view wx:elif="{{blk.type === 'table'}}" class="md-table-wrap">
+          <view class="md-table">
+            <view class="md-table-row md-table-head">
+              <view wx:for="{{blk.headers}}" wx:for-item="h" wx:key="hIdx" wx:for-index="hIdx" class="md-table-cell md-align-{{blk.aligns[hIdx] || 'left'}}">
+                <text wx:for="{{h}}" wx:for-item="in" wx:key="inIdx4" wx:for-index="inIdx4"
+                  class="md-inline md-bold">{{in.text}}</text>
+              </view>
+            </view>
+            <view wx:for="{{blk.rows}}" wx:for-item="row" wx:key="rIdx" wx:for-index="rIdx" class="md-table-row">
+              <view wx:for="{{row}}" wx:for-item="cell" wx:key="cIdx" wx:for-index="cIdx" class="md-table-cell md-align-{{blk.aligns[cIdx] || 'left'}}">
+                <text wx:for="{{cell}}" wx:for-item="in" wx:key="inIdx5" wx:for-index="inIdx5"
+                  class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view wx:elif="{{blk.type === 'blockquote'}}" class="md-quote">
+          <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx6" wx:for-index="inIdx6"
+            class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.italic ? 'md-italic' : ''}}">{{in.text}}</text>
+        </view>
+        <text wx:elif="{{blk.type === 'code'}}" class="md-code-block" user-select="{{true}}">{{blk.text}}</text>
+        <view wx:elif="{{blk.type === 'hr'}}" class="md-hr"></view>
+      </block>
     </view>
 
-    <!-- 导出按钮组 -->
-    <view class="export-actions" wx:if="{{result.content || result.summary}}">
-      <button class="btn-export" bindtap="onCopyReport">📋 复制报告</button>
-      <button class="btn-export" bindtap="onDownloadReport">📥 下载报告</button>
-    </view>
-
-    <!-- 多模型协作：各分析师独立报告 -->
+    <!-- 多模型协作：各分析师独立报告（可折叠） -->
     <view class="sub-reports" wx:if="{{result.subReports && result.subReports.length > 0}}">
       <view class="sub-reports-title" bindtap="onToggleSubReports">
         <text>各分析师独立报告（{{result.subReports.length}} 份）</text>
         <text class="sub-toggle">{{showSubReports ? '收起 ▲' : '展开 ▼'}}</text>
       </view>
       <view wx:if="{{showSubReports}}">
-        <view class="sub-report-item" wx:for="{{result.subReports}}" wx:for-item="sub" wx:key="provider">
+        <view class="sub-report-item" wx:for="{{result.subReports}}" wx:for-item="sub" wx:key="provider" wx:for-index="subIdx">
           <view class="sub-report-header">
             <image class="chip-icon" src="../../images/providers/provider_{{sub.provider}}.png" mode="aspectFit"></image>
             <text class="sub-report-provider">{{sub.provider}}</text>
             <text class="sub-report-error" wx:if="{{sub.error}}">（失败：{{sub.error}}）</text>
-            <text class="sub-report-copy" wx:if="{{sub.content}}" bindtap="onCopySubReport" data-index="{{index}}">📋</text>
           </view>
-          <view class="sub-report-content" wx:if="{{sub.contentHtml}}">
-            <rich-text nodes="{{sub.contentHtml}}"></rich-text>
-          </view>
+          <block wx:if="{{result.subContentBlocks[subIdx] && result.subContentBlocks[subIdx].length > 0}}">
+            <block wx:for="{{result.subContentBlocks[subIdx]}}" wx:for-item="blk" wx:key="sblkIdx" wx:for-index="sblkIdx">
+              <view wx:if="{{blk.type === 'heading'}}" class="md-heading md-h{{blk.level}}">
+                <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx4" wx:for-index="inIdx4"
+                  class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.color === 'primary' ? 'md-section-tag' : ''}}">{{in.text}}</text>
+              </view>
+              <view wx:elif="{{blk.type === 'paragraph'}}" class="md-para">
+                <text wx:for="{{blk.inlines}}" wx:for-item="in" wx:key="inIdx5" wx:for-index="inIdx5"
+                  class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+              </view>
+              <view wx:elif="{{blk.type === 'list'}}" class="md-list">
+                <view wx:for="{{blk.items}}" wx:for-item="it" wx:key="itIdx2" wx:for-index="itIdx2" class="md-list-item">
+                  <text class="md-list-marker">{{blk.ordered ? (itIdx2 + 1 + '.') : '·'}}</text>
+                  <view class="md-list-text">
+                    <text wx:for="{{it}}" wx:for-item="in" wx:key="inIdx6" wx:for-index="inIdx6"
+                      class="md-inline {{in.bold ? 'md-bold' : ''}} {{in.code ? 'md-code-inline' : ''}}">{{in.text}}</text>
+                  </view>
+                </view>
+              </view>
+              <view wx:elif="{{blk.type === 'table'}}" class="md-table-wrap">
+                <view class="md-table">
+                  <view class="md-table-row md-table-head">
+                    <view wx:for="{{blk.headers}}" wx:for-item="h" wx:key="hIdx2" wx:for-index="hIdx2" class="md-table-cell md-align-{{blk.aligns[hIdx2] || 'left'}}">
+                      <text wx:for="{{h}}" wx:for-item="in" wx:key="inIdx7" wx:for-index="inIdx7"
+                        class="md-inline md-bold">{{in.text}}</text>
+                    </view>
+                  </view>
+                  <view wx:for="{{blk.rows}}" wx:for-item="row" wx:key="rIdx2" wx:for-index="rIdx2" class="md-table-row">
+                    <view wx:for="{{row}}" wx:for-item="cell" wx:key="cIdx2" wx:for-index="cIdx2" class="md-table-cell md-align-{{blk.aligns[cIdx2] || 'left'}}">
+                      <text wx:for="{{cell}}" wx:for-item="in" wx:key="inIdx8" wx:for-index="inIdx8"
+                        class="md-inline {{in.bold ? 'md-bold' : ''}}">{{in.text}}</text>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </block>
+          </block>
+          <text wx:else class="sub-report-content" wx:if="{{sub.content}}" user-select="{{true}}" decode="{{true}}">{{sub.content}}</text>
         </view>
       </view>
     </view>
@@ -187,10 +273,8 @@
       <view class="quick-q" bindtap="onQuickQuestion" data-q="当前仓位适合什么行情？">› 当前仓位适合什么行情？</view>
       <view class="quick-q" bindtap="onQuickQuestion" data-q="我是不是银行股太多了？">› 我是不是银行股太多了？</view>
     </view>
-    <view class="qa-answer" wx:if="{{qaAnswerHtml}}">
-      <view class="qa-bubble">
-        <rich-text nodes="{{qaAnswerHtml}}"></rich-text>
-      </view>
+    <view class="qa-answer" wx:if="{{qaAnswer}}">
+      <view class="qa-bubble">{{qaAnswer}}</view>
     </view>
   </view>
 

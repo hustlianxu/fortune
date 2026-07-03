@@ -9,17 +9,17 @@
  *   - 优先使用 holdings.daily_change（百分比）
  *   - 否则用 current_price 与 prev_close 计算
  *
- * 注意：模板 ID 为占位符，需在微信公众平台申请真实订阅消息模板后替换；
- *      替换后请保证 data 中的字段名（thing1/amount2/time3）与申请到的模板一致。
+ * 模板 ID：从每个用户在 notify_settings 中填写的 tmplIds.price_alert 读取，
+ *        缺失时跳过该用户并在 errors 中清晰标记原因。
+ *
+ * 注意：替换后请保证 data 中的字段名（thing1/amount2/time3）与申请到的模板一致。
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
-// 涨跌提醒订阅消息模板 ID（占位符，需替换）
-const PRICE_ALERT_TMPL_ID = 'FlcTXL2NC2IXi6tXTKjC01vB3hAXkQNwZpomFy27N7s';
-
 const MAX_BATCH = 1000; // 单次 get 上限
+const PLACEHOLDER_HINT = 'YOUR_';
 
 function pad(n) {
   return n < 10 ? '0' + n : '' + n;
@@ -66,6 +66,7 @@ exports.main = async () => {
     });
 
     let alerted = 0;
+    let skippedNoTmpl = 0;
     const alerts = [];
     const errors = [];
 
@@ -73,6 +74,21 @@ exports.main = async () => {
     for (const oid of openids) {
       const s = settingsMap[oid];
       if (!s || !s.priceAlert) continue; // 未开启涨跌提醒，跳过
+
+      // 模板 ID 解析：优先用户配置 tmplIds.price_alert，缺失则跳过
+      const userTmplIds = s.tmplIds || {};
+      const templateId = (userTmplIds.price_alert || '').trim();
+      if (!templateId || templateId.indexOf(PLACEHOLDER_HINT) === 0) {
+        // 一个用户只标记一次缺失
+        if (!errors.some(e => e.openid === oid && e.error.indexOf('未配置订阅消息模板') === 0)) {
+          skippedNoTmpl++;
+          errors.push({
+            openid: oid,
+            error: '未配置订阅消息模板 ID（请在「我-推送设置」中填入）',
+          });
+        }
+        continue;
+      }
 
       const parsed = parseFloat(s.alertThreshold);
       const threshold = isNaN(parsed) ? 3 : Math.abs(parsed);
@@ -104,12 +120,12 @@ exports.main = async () => {
         try {
           await cloud.openapi.subscribeMessage.send({
             touser: oid,
-            templateId: PRICE_ALERT_TMPL_ID,
+            templateId,
             page: 'pages/index/index',
             data: {
-              thing11: { value: productName },
-              character_string14: { value: changeText },
-              time9: { value: nowStr() },
+              thing1: { value: productName },
+              amount2: { value: changeText },
+              time3: { value: nowStr() },
             },
           });
           alerted++;
@@ -130,6 +146,7 @@ exports.main = async () => {
       success: true,
       alerted,
       alerts,
+      skippedNoTmpl,
       errors,
     };
   } catch (err) {

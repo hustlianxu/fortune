@@ -77,14 +77,26 @@ Page({
     wx.showLoading({ title: '获取中...' });
     try {
       const result = await api.callCloudFunction('fetch_news');
+      wx.hideLoading();
       if (result && result.success) {
         wx.showToast({ title: `获取到 ${result.count || 0} 条资讯`, icon: 'success' });
         this.loadNews();
       } else {
-        wx.showToast({ title: '获取失败', icon: 'none' });
+        // 暴露具体失败原因，便于用户/开发者定位（如所有资讯源失败、网络超时等）
+        const msg = (result && result.message) ? result.message : '获取失败';
+        wx.showModal({
+          title: '获取失败',
+          content: msg,
+          showCancel: false,
+        });
       }
     } catch (err) {
-      wx.showToast({ title: '网络错误', icon: 'none' });
+      wx.hideLoading();
+      wx.showModal({
+        title: '获取失败',
+        content: err && err.errMsg ? err.errMsg : '网络错误，请稍后重试',
+        showCancel: false,
+      });
     }
   },
 });

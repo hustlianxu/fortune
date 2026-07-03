@@ -88,8 +88,8 @@
 
     <view class="action-buttons">
       <button class="btn-trade" bindtap="onRecordTrade">记一笔买卖</button>
+      <button class="btn-rebuild" bindtap="onRebuild">重建</button>
       <button class="btn-edit" bindtap="onEdit">编辑</button>
-      <button class="btn-rebuild" bindtap="onRebuildHolding">重建</button>
       <button class="btn-delete" bindtap="onDelete">删除</button>
     </view>
   </view>
