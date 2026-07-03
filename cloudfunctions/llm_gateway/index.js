@@ -379,22 +379,25 @@ function withTimeout(promise, timeoutMs) {
 /**
  * 单分析师 LLM 调用：失败/超时不抛错，返回结构体（含 content/error/timedOut）
  * 这样某一位分析师卡死不会让整次分析失败，最终仍能落库并返回部分结果。
+ * @param {number} timeoutMs - 单次调用超时毫秒数（默认 50s，多模型协作场景建议 25s）
  */
-async function callAnalystSafely(provider, cfg, messages) {
+async function callAnalystSafely(provider, cfg, messages, timeoutMs) {
   const apiKey = decrypt(cfg.api_key);
   if (!apiKey) {
     return { provider, content: '', error: 'API Key 解密失败', model: '' };
   }
   const model = cfg.model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || '';
-  // 单分析师最多 50s（云端整体 60s 内必须收尾）
+  const effectiveTimeout = timeoutMs || (50 * 1000);
+  // 注意：callLLM 直接 resolve 为字符串，withTimeout 会将其包成 { content, timedOut }
+  // 切勿在 callLLM 后再 .then 包对象，否则 content 会变成嵌套对象，导致 parseAnalysisResult 报 content.match is not a function
   const { content, timedOut, error } = await withTimeout(
-    callLLM(provider, apiKey, messages, model).then(c => ({ content: c, error: null, timedOut: false })),
-    50 * 1000
+    callLLM(provider, apiKey, messages, model),
+    effectiveTimeout
   );
   return {
     provider,
-    content: content || '',
-    error: timedOut ? '调用超时（>50s）' : (error || null),
+    content: typeof content === 'string' ? content : '',
+    error: timedOut ? `调用超时（>${Math.round(effectiveTimeout / 1000)}s）` : (error || null),
     timedOut: !!timedOut,
     model,
   };
@@ -511,15 +514,14 @@ exports.main = async (event) => {
         { role: 'user', content: prompt },
       ];
 
-      // 逐个调用分析师模型（顺序调用，避免并发触发服务商限流）。
+      // 并行调用分析师模型（不同 provider 互不限流，并行可将 N×25s 压缩为 25s）。
       // 使用 callAnalystSafely：单个分析师超时/失败不会中断整次分析，
       // 失败的会以 error/timedOut 形式记录在 subReports 中，最终仍能落库。
-      const subReports = [];
-      for (const ap of analystList) {
-        const cfg = userConfig.providers[ap];
-        const r = await callAnalystSafely(ap, cfg, messages);
-        subReports.push(r);
-      }
+      // 单分析师超时设为 25s（并行 + 汇总 25s ≈ 50s，留 10s 给 DB 收尾，确保 < 60s 云函数上限，
+      // 避免 wx.cloud.callFunction 出现 -404010 result expired 错误）。
+      const subReports = await Promise.all(
+        analystList.map(ap => callAnalystSafely(ap, userConfig.providers[ap], messages, 25 * 1000))
+      );
 
       const successCount = subReports.filter(r => r.content).length;
       // 全部分析师失败 → 仍然落库一条「失败占位」报告，便于前端轮询拉到结果
@@ -558,12 +560,12 @@ exports.main = async (event) => {
       if (analystList.length === 1) {
         finalContent = subReports[0].content;
       } else {
-        // 多分析师 → 调汇总模型（同样使用超时保护，避免汇总卡死）
+        // 多分析师 → 调汇总模型（同样使用超时保护，避免汇总卡死；25s 与分析师并行阶段一致）
         const synthCfg = userConfig.providers[synthProvider];
         const synthR = await callAnalystSafely(synthProvider, synthCfg, [
           { role: 'system', content: '你是一位首席投资顾问，擅长综合多方观点给出最终结论。使用中文回复。' },
           { role: 'user', content: buildSynthesisPrompt(analysisType, subReports) },
-        ]);
+        ], 25 * 1000);
         if (synthR.content) {
           finalContent = synthR.content;
           usedSynth = true;

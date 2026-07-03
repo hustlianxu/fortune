@@ -88,14 +88,20 @@ async function getHoldingsAnalysis() {
 }
 
 /**
- * 获取历史分析报告列表
+ * 获取历史分析报告列表（按 created_at 倒序，分页）
+ * @param {number} [skip=0] - 跳过条数，用于分页
+ * @param {number} [limit=10] - 单页条数
+ * @returns {Promise<Array>} 报告数组
  */
-async function getAnalysisReports() {
+async function getAnalysisReports(skip, limit) {
   try {
     const db = wx.cloud.database();
+    const sk = skip || 0;
+    const lm = limit || 10;
     const res = await db.collection('analysis_reports')
       .orderBy('created_at', 'desc')
-      .limit(20)
+      .skip(sk)
+      .limit(lm)
       .get();
     return res.data || [];
   } catch (err) {
