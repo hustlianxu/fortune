@@ -152,7 +152,7 @@ Page({
     const realized = Number(holding.realized_pnl) || 0;
     const dividend = Number(holding.total_dividend) || 0;
     const totalFee = Number(holding.total_fee) || 0;
-    const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
+    const totalPnl = Number((pnl + realized + dividend).toFixed(2));
     const investedCost = costValue + Math.max(0, realized);
     const totalPnlPercent = investedCost > 0 ? (totalPnl / investedCost) * 100 : 0;
     const recomputed = Object.assign({}, holding, {
@@ -429,7 +429,7 @@ Page({
       const curPrice = Number(holding.current_price) || 0;
       const marketValue = Number((shares * curPrice).toFixed(2));
       const pnl = Number((marketValue - costValue).toFixed(2));
-      const totalPnl = Number((pnl + realizedPnl + totalDividend - totalFee).toFixed(2));
+      const totalPnl = Number((pnl + realizedPnl + totalDividend).toFixed(2));
       const isCleared = shares <= 0;
 
       await db.collection('holdings').doc(holding._id).update({

@@ -19,17 +19,17 @@
     "pages/settings/notify/index"
   ],
   "window": {
-    "navigationBarBackgroundColor": "#1a1a2e",
+    "navigationBarBackgroundColor": "@navBgColor",
     "navigationBarTitleText": "资产管家",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#f5f5f5",
-    "backgroundTextStyle": "dark"
+    "navigationBarTextStyle": "@navTxtStyle",
+    "backgroundColor": "@pageBgColor",
+    "backgroundTextStyle": "@bgTextStyle"
   },
   "tabBar": {
-    "color": "#8e8e93",
-    "selectedColor": "#4a6cf7",
-    "backgroundColor": "#ffffff",
-    "borderStyle": "black",
+    "color": "@tabFontColor",
+    "selectedColor": "@tabSelectedColor",
+    "backgroundColor": "@tabBgColor",
+    "borderStyle": "@tabBorderColor",
     "list": [
       {
         "pagePath": "pages/dashboard/index",
@@ -59,6 +59,8 @@
   },
   "usingComponents": {},
   "style": "v2",
+  "darkmode": true,
+  "themeLocation": "theme.json",
   "sitemapLocation": "sitemap.json",
   "cloud": true
 }

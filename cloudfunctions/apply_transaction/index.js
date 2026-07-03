@@ -32,7 +32,7 @@ function recomputeTotalPnl(holding, marketValue, costValue) {
   const realized = Number(holding.realized_pnl) || 0;
   const dividend = Number(holding.total_dividend) || 0;
   const fee = Number(holding.total_fee) || 0;
-  return Number((mv - cv + realized + dividend - fee).toFixed(2));
+  return Number((mv - cv + realized + dividend).toFixed(2));
 }
 
 exports.main = async (event) => {

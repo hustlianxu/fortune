@@ -3,5 +3,6 @@
     "openapi": []
   },
   "triggers": [],
-  "env": "your-env-id"
+  "env": "your-env-id",
+  "timeout": 60
 }

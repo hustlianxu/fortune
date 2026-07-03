@@ -100,6 +100,22 @@ Page({
     try {
       const reports = await api.getAnalysisReports();
       this.setData({ historyReports: reports });
+      // 进入页面时若结果区为空，自动展示最近一份报告（含生成时间）
+      if (reports.length > 0 && !this.data.result.show) {
+        const latest = reports[0];
+        this.setData({
+          result: {
+            show: true,
+            summary: latest.summary || '',
+            keyFindings: latest.key_findings || [],
+            riskLevel: latest.risk_level || '',
+            content: latest.report_content || '',
+            date: formatDate(new Date(latest.created_at)),
+            multiMode: false,
+            subReports: [],
+          },
+        });
+      }
     } catch (err) {
       console.error('[AI] loadHistory error:', err);
     }

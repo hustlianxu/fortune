@@ -34,7 +34,7 @@
         <text class="total-pnl-value">{{fmt.pnlSign(holding.total_pnl)}}{{fmt.formatMoney(holding.total_pnl)}}</text>
       </view>
       <text class="total-pnl-pct">收益率 {{fmt.formatPercent(holding.total_pnl_percent)}}</text>
-      <text class="total-pnl-hint">总收益 = 浮动 + 已实现 + 分红 - 手续费（与同花顺口径一致）</text>
+      <text class="total-pnl-hint">总收益 = 浮动 + 已实现 + 分红（手续费已计入成本与已实现）</text>
     </view>
 
     <!-- 收益分项明细 -->
@@ -73,7 +73,7 @@
       <view class="info-item">
         <text class="info-label">浮动盈亏比例</text>
         <text class="info-value {{fmt.pnlClass(holding.pnl_percent)}}">
-          {{fmt.pnlSign(holding.pnl_percent)}}{{fmt.formatPercent(holding.pnl_percent)}}
+          {{fmt.formatPercent(holding.pnl_percent)}}
         </text>
       </view>
       <view class="info-item">

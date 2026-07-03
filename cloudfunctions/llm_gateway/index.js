@@ -279,6 +279,7 @@ async function callOpenAICompatible(provider, apiKey, messages, model) {
       temperature: 0.3,
       max_tokens: 4096,
     }),
+    timeout: 45000,
   });
 
   if (!res.ok) {
@@ -321,6 +322,7 @@ async function callClaude(apiKey, messages, model) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
+    timeout: 45000,
   });
 
   if (!res.ok) {
@@ -340,6 +342,25 @@ async function callLLM(provider, apiKey, messages, model) {
     return callClaude(apiKey, messages, model);
   }
   return callOpenAICompatible(provider, apiKey, messages, model);
+}
+
+/**
+ * 带重试的 LLM 调用（指数退避，默认重试 2 次）
+ */
+async function callLLMWithRetry(provider, apiKey, messages, model, retries) {
+  const max = typeof retries === 'number' ? retries : 2;
+  let lastErr;
+  for (let attempt = 0; attempt <= max; attempt++) {
+    try {
+      return await callLLM(provider, apiKey, messages, model);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < max) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -453,23 +474,21 @@ exports.main = async (event) => {
         { role: 'user', content: prompt },
       ];
 
-      // 逐个调用分析师模型（顺序调用，避免并发触发服务商限流）
-      const subReports = [];
-      for (const ap of analystList) {
+      // 并行调用各分析师模型（不同 provider 并发安全；单次失败不影响其他，带重试）
+      const subReports = await Promise.all(analystList.map(async (ap) => {
         const cfg = userConfig.providers[ap];
         const apiKey = decrypt(cfg.api_key);
         if (!apiKey) {
-          subReports.push({ provider: ap, content: '', error: 'API Key 解密失败' });
-          continue;
+          return { provider: ap, content: '', error: 'API Key 解密失败' };
         }
         const model = cfg.model || PROVIDERS[ap].defaultModel || '';
         try {
-          const content = await callLLM(ap, apiKey, messages, model);
-          subReports.push({ provider: ap, content, model });
+          const content = await callLLMWithRetry(ap, apiKey, messages, model);
+          return { provider: ap, content, model };
         } catch (err) {
-          subReports.push({ provider: ap, content: '', error: err.message });
+          return { provider: ap, content: '', error: err.message };
         }
-      }
+      }));
 
       // 仅一个分析师 或 汇总模型与唯一分析师相同 → 直接返回该报告（无需汇总）
       let finalContent;
@@ -489,7 +508,7 @@ exports.main = async (event) => {
           { role: 'system', content: '你是一位首席投资顾问，擅长综合多方观点给出最终结论。使用中文回复。' },
           { role: 'user', content: synthPrompt },
         ];
-        finalContent = await callLLM(synthProvider, synthApiKey, synthMessages, synthModel);
+        finalContent = await callLLMWithRetry(synthProvider, synthApiKey, synthMessages, synthModel);
         usedSynth = true;
       }
 
@@ -548,7 +567,7 @@ exports.main = async (event) => {
 
     // 调用 LLM
     const model = providerConfig.model || PROVIDERS[provider].defaultModel || '';
-    const content = await callLLM(provider, apiKey, messages, model);
+    const content = await callLLMWithRetry(provider, apiKey, messages, model);
 
     // 保存分析报告
     if (type !== 'qa') {

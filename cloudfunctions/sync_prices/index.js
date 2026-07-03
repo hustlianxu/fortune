@@ -106,10 +106,24 @@ async function fetchFundPrices(fundCodes) {
   return result;
 }
 
+async function fetchAllHoldings() {
+  const PAGE_SIZE = 100;
+  let all = [];
+  let skip = 0;
+  while (true) {
+    const res = await db.collection('holdings').skip(skip).limit(PAGE_SIZE).get();
+    all = all.concat(res.data || []);
+    if (!res.data || res.data.length < PAGE_SIZE) break;
+    skip += PAGE_SIZE;
+    if (skip > 5000) break;
+  }
+  return all;
+}
+
 exports.main = async (event) => {
   try {
     // 1. 获取所有持仓
-    const { data: holdings } = await db.collection('holdings').get();
+    const holdings = await fetchAllHoldings();
     if (!holdings || holdings.length === 0) {
       return { success: true, message: '无持仓数据，跳过更新', updated: 0 };
     }
@@ -163,11 +177,11 @@ exports.main = async (event) => {
       const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
       // 当日变动额（用于今日收益展示）
       const dailyChange = priceData.change || 0;
-      // 总收益（同花顺口径）：浮动 + 已实现 + 分红 - 累计手续费
+      // 总收益（同花顺口径）：浮动 + 已实现 + 分红
+      // 手续费已计入成本(买入)与已实现盈亏(卖出)，不重复扣减
       const realized = Number(h.realized_pnl) || 0;
       const dividend = Number(h.total_dividend) || 0;
-      const totalFee = Number(h.total_fee) || 0;
-      const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
+      const totalPnl = Number((pnl + realized + dividend).toFixed(2));
 
       await db.collection('holdings').doc(h._id).update({
         data: {
