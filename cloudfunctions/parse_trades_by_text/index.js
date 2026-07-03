@@ -26,6 +26,7 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
+const _ = db.command;
 const http = require('./http');
 const crypto = require('crypto');
 
@@ -77,8 +78,9 @@ function buildParsePrompt(text) {
 4. 产品代码缺失时填空字符串，产品名称尽量保留原文
 5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
 6. 分红/利息类交易 shares 和 price 填 0，amount 填实际金额
-7. buy/sell 的 amount = shares × price（不含手续费）
-8. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
+7. buy/sell 的 amount = shares × price（不含手续费），amount 永远为正数
+8. 卖出（sell）也用正数金额，系统靠 type 字段区分买入/卖出，不是靠金额正负
+9. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
 
 输出格式（严格遵循）：
 [
@@ -211,6 +213,26 @@ function normalizeTrade(t, warnings) {
   const fee = Number(t.fee) || 0;
   let amount = Number(t.amount);
   if (isNaN(amount)) amount = 0;
+
+  // ═══════════════════════════════════════════════════════════════
+  // 金额/份额归一化：一律转为正数
+  //
+  // 原则：交易类型由显式的 type 字段决定（buy/sell），
+  //       绝不通过金额正负来推断类型，避免"全部变成买入"类 bug。
+  //       外部数据（同花顺/东财导出等）可能用负数表示"减少"，
+  //       统一取绝对值，预警告知用户。
+  // ═══════════════════════════════════════════════════════════════
+  if (shares < 0 && (type === 'buy' || type === 'sell' || type === 'ipo_win' || type === 'stock_dividend')) {
+    warnings.push(`「${t.product_name || type}」份额为负数(${shares})，已自动取绝对值归一化`);
+    shares = Math.abs(shares);
+    if (amount < 0) amount = Math.abs(amount);
+  }
+  // 金额为负且类型明确时，同样取绝对值（可能来自部分 LLM 或外部数据源）
+  if (amount < 0 && (type === 'buy' || type === 'sell')) {
+    warnings.push(`「${t.product_name || type}」金额为负数(${amount})，已自动取绝对值，类型保持「${type}」不变`);
+    amount = Math.abs(amount);
+  }
+
   // buy/sell 缺失 amount 时按 shares×price 自动补
   if ((type === 'buy' || type === 'sell') && amount === 0 && shares > 0 && price > 0) {
     amount = shares * price;
@@ -391,7 +413,7 @@ async function importTrade(trade, account_id, warnings, request_id, openid) {
         .limit(1).get();
       const hasHolding = existHolding.data && existHolding.data.length > 0;
       if (!hasHolding) {
-        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy' };
+        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy', holding_deleted: _.neq(true) };
         if (openid) txnWhere._openid = openid;
         const existBuy = await db.collection('transactions')
           .where(txnWhere)
@@ -425,6 +447,7 @@ async function importTrade(trade, account_id, warnings, request_id, openid) {
   };
   // 写入导入幂等 key，便于双击/重试时识别重复提交
   if (request_id) data.import_request_id = request_id;
+  console.log('[importTrade] writing txn type=' + type + ', product=' + (trade.product_code || trade.product_name) + ', shares=' + trade.shares + ', price=' + trade.price);
   const addRes = await db.collection('transactions').add({ data });
   return addRes._id;
 }
@@ -585,6 +608,11 @@ exports.main = async (event) => {
 
     // ============ 3. 实际写入 ============
     // openid 已在 main 开头获取
+
+    // 调试：确认即将写入的交易类型是否正确
+    const typeCounts = {};
+    trades.forEach(t => { typeCounts[t.type] = (typeCounts[t.type] || 0) + 1; });
+    console.log('[parse_trades] about to write', trades.length, 'trades, types:', JSON.stringify(typeCounts));
 
     let imported = 0;
     const affectedProducts = new Set();  // 收集受影响的 product_code，用于批量 rebuild

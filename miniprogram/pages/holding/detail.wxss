@@ -99,6 +99,20 @@
 
 .section-title { font-size: 28rpx; font-weight: 600; color: var(--text-primary); margin-bottom: 16rpx; }
 
+/* 交易列表折叠/展开 */
+.txns-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 0;
+  cursor: pointer;
+}
+.txns-toggle {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+  padding: 4rpx 12rpx;
+}
+
 .action-buttons { display: flex; gap: 20rpx; }
 .btn-trade {
   flex: 1.4;

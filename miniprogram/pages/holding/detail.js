@@ -15,9 +15,11 @@ Page({
     holding: {},
     holdingId: '',
     priceColor: 'price-flat',
-    transactions: [],         // 该持仓的全部交易（按日期正序）
+    transactions: [],         // 该持仓的全部交易（按日期正序，供回放/图表）
+    displayTransactions: [],  // 倒序副本（最新在上，供列表展示）
     loadingTxns: false,
     chartRendered: false,
+    txnsExpanded: true,       // 交易列表默认展开
   },
 
   onLoad(options) {
@@ -252,24 +254,57 @@ Page({
     });
   },
 
+  /**
+   * 分页拉取某持仓的全部交易记录
+   * 匹配 api.getHoldings 的可靠分页模式（微信云数据库 .get() 默认上限 20 条，
+   * 必须手动分页才能拿到全部数据）
+   */
+  async _fetchAllTxns(account_id, product_code) {
+    const db = wx.cloud.database();
+    const baseQuery = db.collection('transactions').where({ account_id, product_code });
+    const PAGE_SIZE = 20;  // 与 api.getHoldings 一致
+    let all = [];
+    let skip = 0;
+    while (true) {
+      const res = await baseQuery.skip(skip).limit(PAGE_SIZE).get();
+      const batch = res.data || [];
+      all = all.concat(batch);
+      if (batch.length < PAGE_SIZE) break;
+      skip += PAGE_SIZE;
+      if (skip > 2000) break;
+    }
+    // 内存中排序（交易回放/图表需要正序，展示用倒序）
+    all.sort((a, b) => {
+      const da = a.trade_date || '';
+      const db2 = b.trade_date || '';
+      if (da !== db2) return da < db2 ? -1 : 1;
+      const ca = a.created_at || '';
+      const cb = b.created_at || '';
+      return ca < cb ? -1 : (ca > cb ? 1 : 0);
+    });
+    return all;
+  },
+
   /** 加载该持仓的全部交易（按日期正序，用于图表和列表） */
   async loadAllTransactions() {
     const { holding } = this.data;
     if (!holding.account_id || !holding.product_code) return;
     this.setData({ loadingTxns: true });
     try {
-      const res = await db.collection('transactions')
-        .where({
-          account_id: holding.account_id,
-          product_code: holding.product_code,
-        })
-        .orderBy('trade_date', 'asc')
-        .orderBy('created_at', 'asc')
-        .get();
+      // 使用分页拉取全部交易记录，避免微信云数据库 .get() 默认 20 条上限导致记录缺失
+      const all = await this._fetchAllTxns(holding.account_id, holding.product_code);
       // 过滤掉「持仓已删除」标记的交易（软删除的交易不参与展示和回放校验）
-      const txns = (res.data || []).filter(t => !t.holding_deleted);
+      const txns = (all || []).filter(t => !t.holding_deleted);
+      console.log('[Holding Detail] loaded', txns.length, 'transactions');
+      if (txns.length > 0) {
+        const typeStats = {};
+        txns.forEach(t => { typeStats[t.type] = (typeStats[t.type] || 0) + 1; });
+        console.log('[Holding Detail] types:', JSON.stringify(typeStats));
+      }
+      // transactions: 正序（回放/图表用）；displayTransactions: 倒序（列表展示，最新在上）
       this.setData({
         transactions: txns,
+        displayTransactions: txns.slice().reverse(),
         loadingTxns: false,
       });
     } catch (err) {
@@ -467,13 +502,10 @@ Page({
       const holding = holdingRes.data[0];
       if (!holding) return;
 
-      // 拉取该持仓剩余的全部交易（被删除的已不在集合中），按日期正序回放
-      const txnsRes = await db.collection('transactions')
-        .where({ account_id: txn.account_id, product_code: txn.product_code })
-        .orderBy('trade_date', 'asc')
-        .orderBy('created_at', 'asc')
-        .get();
-      const txns = txnsRes.data || [];
+      // 分页拉取该持仓剩余的全部交易（被删除的已不在集合中），按日期正序回放
+      // 使用分页避免 .get() 默认 20 条上限导致回放不完整，持仓修正错误
+      const allTxns = await this._fetchAllTxns(txn.account_id, txn.product_code);
+      const txns = (allTxns || []).filter(t => !t.holding_deleted);
 
       let shares = 0;
       let costValue = 0;
@@ -563,39 +595,38 @@ Page({
     const h = this.data.holding;
     wx.showModal({
       title: '确认删除',
-      content: `删除 ${h.product_name} 的持仓记录？\n\n交易记录会保留（标记为"持仓已删除"），之后可通过「重建」恢复。`,
+      content: `删除 ${h.product_name} 的持仓记录？\n\n对应交易记录也将一并物理删除，删除后不可恢复。`,
       success: async (res) => {
         if (!res.confirm) return;
         wx.showLoading({ title: '删除中...', mask: true });
         try {
-          // 1. 物理删除持仓 doc（可从交易记录重建恢复）
-          await db.collection('holdings').doc(h._id).remove();
-          // 2. 关联标记该 (account_id, product_code) 的交易记录 holding_deleted: true
-          //    交易记录本身不删除，保留作为恢复的"真相来源"
-          try {
-            const txnRes = await db.collection('transactions')
-              .where({ account_id: h.account_id, product_code: h.product_code })
-              .get();
-            const txns = (txnRes && txnRes.data) || [];
-            for (const t of txns) {
-              try {
-                await db.collection('transactions').doc(t._id).update({
-                  data: { holding_deleted: true, updated_at: db.serverDate() },
-                });
-              } catch (e) {}
-            }
-          } catch (e) {
-            console.warn('[onDelete] mark transactions holding_deleted failed:', e);
+          // 调云函数 delete_holding 统一删除持仓 + 全部交易记录
+          // 云函数以 admin 身份运行，用 fetchAll 分页确保全部删除（无客户端分页skip位移bug）
+          const r = await wx.cloud.callFunction({
+            name: 'delete_holding',
+            data: { holding_id: h._id },
+          });
+          const result = r.result || {};
+          if (!result.success) {
+            wx.hideLoading();
+            wx.showToast({ title: result.message || '删除失败', icon: 'none' });
+            return;
           }
           wx.hideLoading();
-          wx.showToast({ title: '已删除，可重建恢复', icon: 'success' });
+          wx.showToast({ title: '已删除持仓及全部交易记录', icon: 'success' });
           setTimeout(() => wx.navigateBack(), 1200);
         } catch (err) {
           wx.hideLoading();
+          console.error('[onDelete] delete_holding error:', err);
           wx.showToast({ title: '删除失败', icon: 'none' });
         }
       },
     });
+  },
+
+  /** 切换交易列表折叠/展开 */
+  onToggleTxns() {
+    this.setData({ txnsExpanded: !this.data.txnsExpanded });
   },
 
   tagClass(type) {

@@ -104,7 +104,10 @@
 
   <!-- 交易列表 -->
   <view class="card" wx:if="{{transactions.length > 0}}">
-    <view class="section-title">全部交易（{{transactions.length}}）</view>
+    <view class="section-title txns-header" bindtap="onToggleTxns" data-expanded="{{txnsExpanded}}">
+      <text>全部交易（{{transactions.length}}）</text>
+      <text class="txns-toggle">{{txnsExpanded ? '收起 ▲' : '展开 ▼'}}</text>
+    </view>
     <view
       class="recent-txn"
       wx:for="{{displayTransactions}}"
@@ -112,6 +115,7 @@
       data-id="{{item._id}}"
       bindlongpress="onLongPressTxn"
       bindtap="onEditTxn"
+      wx:if="{{txnsExpanded}}"
     >
       <view class="recent-txn-left">
         <view class="recent-txn-badge-row">

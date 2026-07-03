@@ -118,6 +118,20 @@
     </scroll-view>
   </view>
 
+  <!-- ═══════ 排序栏 ═══════ -->
+  <view class="card sort-bar">
+    <view class="sort-bar-inner">
+      <view
+        class="sort-option {{sortBy === item.key ? 'active' : ''}}"
+        wx:for="{{sortOptions}}" wx:key="key"
+        bindtap="onSortChange" data-key="{{item.key}}"
+      >
+        <text class="sort-name">{{item.name}}</text>
+        <text class="sort-arrow" wx:if="{{sortBy === item.key}}">{{sortDesc ? '▼' : '▲'}}</text>
+      </view>
+    </view>
+  </view>
+
   <!-- ═══════ 筛选后的账户列表 ═══════ -->
   <block wx:for="{{accountList}}" wx:key="_id">
     <view class="card" wx:if="{{item.visible}}">

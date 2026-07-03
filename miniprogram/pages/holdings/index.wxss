@@ -257,3 +257,32 @@
   color: #fff;
   border: none;
 }
+
+/* ═══════ 排序栏 ═══════ */
+.sort-bar { padding: 12rpx 0; margin-bottom: 10rpx; }
+.sort-bar-inner {
+  display: flex;
+  padding: 0 20rpx;
+  gap: 8rpx;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.sort-option {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  padding: 8rpx 18rpx;
+  border-radius: var(--radius-sm, 10rpx);
+  background: var(--bg-input, #f5f5f5);
+  font-size: 26rpx;
+  color: var(--text-secondary);
+}
+.sort-option.active {
+  background: var(--primary-soft, #e8eaff);
+  color: var(--primary-color, #6c63ff);
+  font-weight: 600;
+}
+.sort-arrow {
+  font-size: 20rpx;
+  line-height: 1;
+}

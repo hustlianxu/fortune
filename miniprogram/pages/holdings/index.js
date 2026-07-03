@@ -1,5 +1,6 @@
 /**
  * 持仓列表页面
+ * 
  */
 const api = require('../../utils/api');
 const { formatMoney, formatQuantity } = require('../../utils/format');
@@ -37,6 +38,15 @@ Page({
       loading: false,
       groups: [],             // [{ account_id, product_code, product_name, account_name, count, latest_date, txnIds }]
     },
+    // ═══════ 排序设置 ═══════
+    sortBy: 'market_value',   // market_value | total_pnl | today_pnl | pnl_percent
+    sortDesc: true,           // true=降序（大→小），false=升序
+    sortOptions: [
+      { key: 'market_value', name: '市值' },
+      { key: 'total_pnl', name: '总盈亏' },
+      { key: 'today_pnl', name: '当日盈亏' },
+      { key: 'pnl_percent', name: '盈亏幅度' },
+    ],
   },
 
   onShow() {
@@ -46,6 +56,7 @@ Page({
   async loadData() {
     try {
       const summary = await api.getPortfolioSummary();
+      const { sortBy, sortDesc } = this.data;
       const accounts = (summary.accounts || []).map(acc => {
         let holdings = acc.holdings || [];
         if (this.data.hideCleared) {
@@ -55,7 +66,7 @@ Page({
           ...acc,
           expanded: true,
           visible: true,
-          displayHoldings: holdings,
+          displayHoldings: this._sortHoldings(holdings, sortBy, sortDesc),
         };
       });
       this.setData({
@@ -77,23 +88,20 @@ Page({
    * 根据 selectedStrategy 重新计算每个 account 的 visible 和 displayHoldings
    */
   applyFilter() {
-    const { accountList, selectedStrategy, hideCleared } = this.data;
+    const { accountList, selectedStrategy, hideCleared, sortBy, sortDesc } = this.data;
     this.setData({
       accountList: accountList.map(acc => {
         let base = acc.holdings || [];
         if (hideCleared) {
           base = base.filter(h => !h.is_cleared && (Number(h.shares) || 0) > 0);
         }
-        if (!selectedStrategy) {
-          return { ...acc, visible: true, displayHoldings: base };
-        }
-        const filtered = base.filter(h =>
-          (h.strategy || '').trim() === selectedStrategy
-        );
+        const filtered = !selectedStrategy
+          ? base
+          : base.filter(h => (h.strategy || '').trim() === selectedStrategy);
         return {
           ...acc,
-          visible: filtered.length > 0,
-          displayHoldings: filtered,
+          visible: !selectedStrategy || filtered.length > 0,
+          displayHoldings: this._sortHoldings(filtered, sortBy, sortDesc),
         };
       }),
     });
@@ -104,6 +112,54 @@ Page({
     this.setData({ hideCleared: !this.data.hideCleared }, () => {
       this.loadData();
     });
+  },
+
+  /** 切换排序方式和顺序 */
+  onSortChange(e) {
+    const key = e.currentTarget.dataset.key;
+    const { sortBy, sortDesc } = this.data;
+    if (sortBy === key) {
+      // 同字段切换升降序
+      this.setData({ sortDesc: !sortDesc }, () => this.applySort());
+    } else {
+      // 切换字段，默认降序
+      this.setData({ sortBy: key, sortDesc: true }, () => this.applySort());
+    }
+  },
+
+  /**
+   * 对当前 displayHoldings 排序
+   */
+  applySort() {
+    const { accountList, sortBy, sortDesc } = this.data;
+    this.setData({
+      accountList: accountList.map(acc => {
+        const sorted = this._sortHoldings(acc.displayHoldings || [], sortBy, sortDesc);
+        return { ...acc, displayHoldings: sorted };
+      }),
+    });
+  },
+
+  /** 排序辅助函数 */
+  _sortHoldings(holdings, sortBy, desc) {
+    if (!holdings || holdings.length === 0) return holdings;
+    const sorted = [...holdings].sort((a, b) => {
+      let va, vb;
+      if (sortBy === 'today_pnl') {
+        // 当日盈亏 = daily_change × shares
+        va = (Number(a.daily_change) || 0) * (Number(a.shares) || 0);
+        vb = (Number(b.daily_change) || 0) * (Number(b.shares) || 0);
+      } else if (sortBy === 'pnl_percent') {
+        // 盈亏幅度优先用 total_pnl_percent，回退到 pnl_percent
+        va = Number(a.total_pnl_percent) || Number(a.pnl_percent) || 0;
+        vb = Number(b.total_pnl_percent) || Number(b.pnl_percent) || 0;
+      } else {
+        va = Number(a[sortBy]) || 0;
+        vb = Number(b[sortBy]) || 0;
+      }
+      return desc ? vb - va : va - vb;
+    });
+    return sorted;
   },
 
   /** 切换策略筛选 */

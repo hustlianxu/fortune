@@ -147,6 +147,7 @@ const CLOUD_FUNCTIONS = {
   GET_NOTIFY_SETTINGS: 'get_notify_settings',
   CHECK_PRICE_ALERT: 'check_price_alert',
   INFER_INDUSTRY: 'infer_industry',
+  DELETE_HOLDING: 'delete_holding',
 };
 
 module.exports = {
