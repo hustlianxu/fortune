@@ -15,12 +15,13 @@
       <view
         wx:for="{{configuredProviders}}"
         wx:key="key"
-        class="provider-chip {{analysts.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+        class="provider-chip {{analystSelected[item.key] ? 'selected' : ''}}"
         bindtap="onToggleAnalyst"
         data-key="{{item.key}}"
       >
-        <image class="chip-icon" src="../../images/providers/provider_{{item.key}}.png" mode="aspectFit"></image>
+        <image class="chip-icon" src="../../images/providers/provider_{{item.key}}{{analystSelected[item.key] ? '_active' : ''}}.png" mode="aspectFit"></image>
         <text class="chip-name">{{item.name}}</text>
+        <text class="chip-check" wx:if="{{analystSelected[item.key]}}">✓</text>
       </view>
     </scroll-view>
     <view class="provider-status unconfigured" wx:else>

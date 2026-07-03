@@ -52,7 +52,7 @@ const PROVIDERS = {
   chatgpt:  { baseURL: 'https://api.openai.com/v1', sdkType: 'openai', defaultModel: 'gpt-4o-mini' },
   claude:   { sdkType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514' },
   bailian:  { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', sdkType: 'openai', defaultModel: 'qwen-max' },
-  mimo:     { baseURL: 'https://api.mi-ai.com/v1', sdkType: 'openai', defaultModel: 'MiMo' },
+  mimo:     { baseURL: 'https://api.xiaomimimo.com/v1', sdkType: 'openai', defaultModel: 'mimo-v2.5-pro' },
   minimax:  { baseURL: 'https://api.minimax.chat/v1', sdkType: 'openai', defaultModel: 'MiniMax-Text-01' },
   custom:   { baseURL: '', sdkType: 'openai', defaultModel: '' },
 };

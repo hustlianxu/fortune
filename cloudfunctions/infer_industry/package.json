@@ -4,7 +4,6 @@
   "description": "Infer holdings industry classification via LLM and write back to holdings.industry",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "latest",
-    "crypto": "latest"
+    "wx-server-sdk": "latest"
   }
 }

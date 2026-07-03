@@ -5,6 +5,7 @@
  */
 const { TRANSACTION_TYPES } = require('../../utils/constants');
 const { calcTradeFee, hasFeeRates } = require('../../utils/fee');
+const { inferProductType, inferExchange } = require('../../utils/inferProduct');
 
 const db = wx.cloud.database();
 
@@ -183,6 +184,8 @@ Page({
           const p = products[0];
           this.setData({
             'form.product_name': p.name || '',
+            'form.product_type': p.type || this.data.form.product_type,
+            'form.exchange': p.exchange || this.data.form.exchange,
             codeLookupHint: `找到: ${p.name} (${p.code})`,
           });
         } else if (products.length > 1) {
@@ -191,7 +194,14 @@ Page({
             codeLookupHint: `找到 ${products.length} 个匹配，请选择：`,
           });
         } else {
-          this.setData({ codeLookupHint: '未匹配到产品' });
+          // 未匹配到产品时，按代码推断 product_type/exchange 兜底（提交 487d457）
+          const inferredType = inferProductType(code);
+          const inferredExchange = inferExchange(code);
+          this.setData({
+            codeLookupHint: '未匹配到产品，已按代码推断类型',
+            ...(inferredType ? { 'form.product_type': inferredType } : {}),
+            ...(inferredExchange ? { 'form.exchange': inferredExchange } : {}),
+          });
         }
       } catch (err) {
         console.error('[onCodeInput] lookup error:', err);

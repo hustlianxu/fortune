@@ -209,10 +209,17 @@ Page({
       // 填充
       const lastY = getY(points[points.length - 1].value);
       const grad = ctx.createLinearGradient(0, getY(maxVal), 0, pad.top + chartH);
-      grad.addColorStop(0, lineColor.replace(')', ', 0.15)').replace('rgb', 'rgba').replace('#', 'rgba(?'));
-      // simple gradient
-      grad.addColorStop(0, 'rgba(108,99,255,0.12)');
-      grad.addColorStop(1, 'rgba(108,99,255,0)');
+      // hex(#rrggbb) → rgba(r,g,b,a)
+      const hex2rgba = (hex, a) => {
+        const h = (hex || '').replace('#', '');
+        if (h.length !== 6) return `rgba(108,99,255,${a})`;
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+      grad.addColorStop(0, hex2rgba(lineColor, 0.15));
+      grad.addColorStop(1, hex2rgba(lineColor, 0));
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.moveTo(getX(0), pad.top + chartH);
