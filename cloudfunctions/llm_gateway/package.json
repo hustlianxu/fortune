@@ -4,7 +4,8 @@
   "description": "LLM analysis gateway - multi-provider AI portfolio analysis",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "latest",
-    "crypto": "latest"
+    "crypto": "latest",
+    "ws": "^8.21.0",
+    "wx-server-sdk": "latest"
   }
 }
