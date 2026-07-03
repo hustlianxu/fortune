@@ -15,7 +15,7 @@
  *   转账/手续费交易：不影响持仓
  *
  * 总收益（同花顺口径）：
- *   total_pnl = 浮动盈亏(market_value - cost_value) + realized_pnl + total_dividend - total_fee
+ *   total_pnl = 浮动盈亏(market_value - cost_value) + realized_pnl + total_dividend
  *
  * 幂等：transaction 带 applied_holding 标记，已应用则跳过。
  */
