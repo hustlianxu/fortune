@@ -363,9 +363,22 @@ Page({
       if (this.data.isEdit) {
         await db.collection('holdings').doc(this.data.holdingId).update({ data });
       } else {
-        await db.collection('holdings').add({
-          data: { ...data, created_at: db.serverDate() },
-        });
+        // 新建前先检查是否已存在同 (account_id, product_code) 的持仓，
+        // 若已存在则改为更新该持仓，避免产生重复持仓（与 rebuild_holdings / apply_transaction
+        // 的去重口径一致，防止「重建后出现重复数据」）
+        const existRes = await db.collection('holdings')
+          .where({ account_id: f.account_id, product_code: f.product_code })
+          .limit(1).get();
+        const exist = existRes.data && existRes.data[0];
+        if (exist) {
+          await db.collection('holdings').doc(exist._id).update({
+            data: { ...data, updated_at: db.serverDate() },
+          });
+        } else {
+          await db.collection('holdings').add({
+            data: { ...data, created_at: db.serverDate() },
+          });
+        }
       }
 
       wx.hideLoading();

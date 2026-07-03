@@ -177,6 +177,7 @@ exports.main = async (event) => {
     let cleared = 0;
     let deduped = 0;
     const keys = Object.keys(holdingsMap);
+    const survivors = [];  // [{ account_id, product_code, _id }] 重建后存活持仓的 _id，供客户端跳转
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
@@ -212,8 +213,10 @@ exports.main = async (event) => {
         updated_at: db.serverDate(),
       };
 
+      let survivingId = '';
       if (existList.length > 0) {
         // 保留第一条，更新份额/成本/累计字段 + 即时重算 market_value/pnl/total_pnl
+        survivingId = existList[0]._id;
         await db.collection('holdings').doc(existList[0]._id).update({ data: updateData });
         // 清理历史重复持仓（同 account_id + product_code 的多余 doc），修复「语音录入生成两个重复持仓」
         if (existList.length > 1) {
@@ -238,8 +241,10 @@ exports.main = async (event) => {
           note: '',
           created_at: db.serverDate(),
         });
-        await db.collection('holdings').add({ data: newHolding });
+        const addRes = await db.collection('holdings').add({ data: newHolding });
+        survivingId = addRes._id;
       }
+      survivors.push({ account_id: h.account_id, product_code: h.product_code, _id: survivingId });
       rebuilt++;
       if (h.is_cleared) cleared++;
     }
@@ -267,6 +272,8 @@ exports.main = async (event) => {
       deduped,
       marked,
       totalTxns: txns.length,
+      // 重建后存活的持仓列表（含 _id），客户端据此跳转，避免把已被去重删除的记录重新加载到详情页
+      survivors,
     };
   } catch (err) {
     console.error('[rebuild_holdings] error:', err);
