@@ -1,7 +1,7 @@
 <!-- AI 智能问答 -->
 <view class="page">
   <view class="chat-container">
-    <view wx:for="{{messages}}" wx:key="index" class="chat-message {{item.role}}">
+    <view wx:for="{{messages}}" wx:key="id" class="chat-message {{item.role}}">
       <view class="bubble {{item.role}}">
         <text>{{item.content}}</text>
       </view>

@@ -1,6 +1,12 @@
 /**
  * AI 智能问答（独立对话页）
  */
+let _msgSeq = 0;
+function nextMsgId() {
+  _msgSeq += 1;
+  return 'm' + _msgSeq;
+}
+
 Page({
   data: {
     messages: [],
@@ -17,7 +23,7 @@ Page({
     if (!question) return;
 
     // 添加用户消息
-    const msgs = [...this.data.messages, { role: 'user', content: question }];
+    const msgs = [...this.data.messages, { id: nextMsgId(), role: 'user', content: question }];
     this.setData({ messages: msgs, question: '', canSend: false });
 
     try {
@@ -36,12 +42,12 @@ Page({
 
       const answer = res.result?.answer || '抱歉，暂时无法回答';
       this.setData({
-        messages: [...msgs, { role: 'assistant', content: answer }],
+        messages: [...msgs, { id: nextMsgId(), role: 'assistant', content: answer }],
       });
     } catch (err) {
       wx.hideLoading();
       this.setData({
-        messages: [...msgs, { role: 'assistant', content: '网络错误，请稍后重试' }],
+        messages: [...msgs, { id: nextMsgId(), role: 'assistant', content: '网络错误，请稍后重试' }],
       });
     }
   },

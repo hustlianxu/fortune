@@ -1,0 +1,120 @@
+/* 多维分析页 */
+.page { padding-bottom: 40rpx; }
+.page-title { font-size: 36rpx; font-weight: 600; color: var(--text-primary); margin-bottom: 20rpx; }
+
+/* 维度切换 tab */
+.dim-scroll {
+  white-space: nowrap;
+  margin-bottom: 20rpx;
+}
+.dim-tab {
+  display: inline-block;
+  padding: 12rpx 28rpx;
+  margin-right: 16rpx;
+  font-size: 26rpx;
+  color: var(--text-secondary);
+  background: var(--bg-secondary, #f7f7fa);
+  border-radius: 28rpx;
+}
+.dim-tab.active {
+  color: #fff;
+  background: #6c63ff;
+  font-weight: 600;
+}
+
+/* 总览行 */
+.overview-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12rpx 0;
+  gap: 16rpx;
+}
+.overview-item {
+  display: flex;
+  flex-direction: column;
+}
+.overview-label {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+}
+.overview-value {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.hide-toggle {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+}
+
+/* 分组卡片 */
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 8rpx 0;
+}
+.group-toggle { font-size: 24rpx; color: var(--text-tertiary); width: 32rpx; }
+.group-name { font-size: 30rpx; font-weight: 600; flex: 1; }
+.group-count { font-size: 22rpx; color: var(--text-tertiary); }
+.group-value { font-size: 26rpx; font-weight: 600; }
+.group-pnl { font-size: 26rpx; font-weight: 600; min-width: 140rpx; text-align: right; }
+
+/* 占比条 */
+.group-bar {
+  height: 8rpx;
+  background: var(--bg-secondary, #f0f0f0);
+  border-radius: 4rpx;
+  margin: 10rpx 0 6rpx;
+  overflow: hidden;
+}
+.group-bar-fill {
+  height: 100%;
+  background: #6c63ff;
+  border-radius: 4rpx;
+}
+.group-pct {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  margin-bottom: 12rpx;
+}
+
+/* 展开明细 */
+.group-detail {
+  border-top: 1rpx solid var(--divider-color);
+  padding-top: 8rpx;
+}
+.detail-item {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.detail-item:last-child { border-bottom: none; }
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6rpx;
+}
+.detail-name { font-size: 28rpx; font-weight: 500; }
+.detail-pnl { font-size: 28rpx; font-weight: 600; }
+.detail-bottom {
+  display: flex;
+  gap: 20rpx;
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+}
+
+.empty-state, .loading-state {
+  text-align: center;
+  padding: 60rpx;
+  color: var(--text-tertiary);
+}
+
+.hint-card {
+  margin-top: 20rpx;
+}
+.hint-text {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}

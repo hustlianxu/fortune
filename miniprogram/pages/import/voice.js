@@ -12,12 +12,19 @@ const db = wx.cloud.database();
 const TYPE_LABELS = {
   buy: '买入',
   sell: '卖出',
+  ipo_win: '打新中签',
   dividend: '分红',
-  transfer_in: '转入',
-  transfer_out: '转出',
+  stock_dividend: '红股入账',
+  split: '拆分/合并',
+  tax: '纳税',
+  transfer_in: '银证转入',
+  transfer_out: '银证转出',
   fee: '手续费',
   interest: '利息',
 };
+
+const TYPE_KEYS = ['buy', 'sell', 'ipo_win', 'dividend', 'stock_dividend', 'split', 'tax', 'transfer_in', 'transfer_out', 'fee', 'interest'];
+const TYPE_NAME_LIST = TYPE_KEYS.map(k => TYPE_LABELS[k]);
 
 Page({
   data: {
@@ -31,8 +38,14 @@ Page({
     importing: false,
     parsedTrades: [],      // 解析结果（预览用）
     warnings: [],
-    sampleText: '3月15号买入1000股招商银行，36块5，手续费5块\n4月20号卖出500股招商银行，38块2\n5月10号买入2000股上证50ETF，2.85\n6月1号招行分红500块',
-    sampleJson: '[\n  {\n    "type": "buy",\n    "product_name": "招商银行",\n    "product_code": "600036",\n    "shares": 1000,\n    "price": 36.50,\n    "fee": 5,\n    "amount": 36500,\n    "trade_date": "2025-03-15",\n    "note": ""\n  }\n]',
+    sampleText: '3月15号买入1000股招商银行，36块5，手续费5块\n4月20号卖出500股招商银行，38块2\n5月10号买入2000股上证50ETF，2.85\n6月1号招行分红500块\n7月15号茅台10送1股红股\n8月2号通信ETF 1拆3\n9月20号打新中签某新股500股，发行价12块5',
+    sampleJson: '[\n  {\n    "type": "buy",\n    "product_name": "招商银行",\n    "product_code": "600036",\n    "shares": 1000,\n    "price": 36.50,\n    "fee": 5,\n    "amount": 36500,\n    "ratio": 0,\n    "trade_date": "2025-03-15",\n    "note": ""\n  },\n  {\n    "type": "stock_dividend",\n    "product_name": "贵州茅台",\n    "product_code": "600519",\n    "shares": 100,\n    "price": 0,\n    "amount": 0,\n    "fee": 0,\n    "ratio": 0,\n    "trade_date": "2025-07-15",\n    "note": "10送1"\n  },\n  {\n    "type": "split",\n    "product_name": "通信ETF",\n    "product_code": "515880",\n    "shares": 0,\n    "price": 0,\n    "amount": 0,\n    "fee": 0,\n    "ratio": 3,\n    "trade_date": "2025-08-02",\n    "note": "1拆3"\n  }\n]',
+    // 编辑弹层
+    editVisible: false,
+    editIndex: -1,
+    editTrade: null,
+    editTypeIndex: 0,
+    editTypeNames: TYPE_NAME_LIST,
   },
 
   onLoad() {
@@ -138,12 +151,22 @@ Page({
         this.setData({ parsing: false });
         return;
       }
-      const trades = (res.trades || []).map(t => ({
-        ...t,
-        typeLabel: TYPE_LABELS[t.type] || t.type,
-        amountText: t.amount.toFixed(2),
-        feeText: t.fee > 0 ? `（手续费 ¥${t.fee.toFixed(2)}）` : '',
-      }));
+      const trades = (res.trades || []).map((t, i) => {
+        // 展示金额：split/stock_dividend 无现金流，展示 ratio 或份额
+        let amountText = t.amount.toFixed(2);
+        if (t.type === 'split' && t.ratio) {
+          amountText = t.ratio > 1 ? `1拆${t.ratio}` : `${(1/t.ratio).toFixed(0)}合1`;
+        } else if (t.type === 'stock_dividend') {
+          amountText = `送 ${t.shares} 股`;
+        }
+        return {
+          ...t,
+          uid: 't' + Date.now() + '_' + i,
+          typeLabel: TYPE_LABELS[t.type] || t.type,
+          amountText,
+          feeText: t.fee > 0 ? `（手续费 ¥${t.fee.toFixed(2)}）` : '',
+        };
+      });
       this.setData({
         parsedTrades: trades,
         warnings: res.warnings || [],
@@ -173,8 +196,86 @@ Page({
     this.setData({ parsedTrades: list });
   },
 
+  /** 打开编辑弹层 */
+  onEditTrade(e) {
+    const idx = e.currentTarget.dataset.index;
+    const trade = this.data.parsedTrades[idx];
+    if (!trade) return;
+    const typeIndex = TYPE_KEYS.indexOf(trade.type);
+    this.setData({
+      editVisible: true,
+      editIndex: idx,
+      editTrade: { ...trade },
+      editTypeIndex: typeIndex >= 0 ? typeIndex : 0,
+    });
+  },
+
+  onEditTypeChange(e) {
+    const typeIndex = parseInt(e.detail.value, 10);
+    this.setData({
+      editTypeIndex: typeIndex,
+      editTrade: { ...this.data.editTrade, type: TYPE_KEYS[typeIndex], typeLabel: TYPE_NAME_LIST[typeIndex] },
+    });
+  },
+
+  onEditField(e) {
+    const field = e.currentTarget.dataset.field;
+    this.setData({ [`editTrade.${field}`]: e.detail.value });
+  },
+
+  onCancelEdit() {
+    this.setData({ editVisible: false, editIndex: -1, editTrade: null });
+  },
+
+  /** 保存编辑：校验并回写到 parsedTrades，重算展示字段 */
+  onSaveEdit() {
+    const t = this.data.editTrade;
+    if (!t) return;
+    const idx = this.data.editIndex;
+    // 数值字段转换
+    const shares = Number(t.shares) || 0;
+    const price = Number(t.price) || 0;
+    const fee = Number(t.fee) || 0;
+    const ratio = Number(t.ratio) || 0;
+    let amount = Number(t.amount);
+    if (isNaN(amount)) amount = 0;
+    // 买卖/打新中签缺金额时按份额×单价补全
+    if ((t.type === 'buy' || t.type === 'sell' || t.type === 'ipo_win') && amount === 0 && shares > 0 && price > 0) {
+      amount = shares * price;
+    }
+    const tradeDate = String(t.trade_date || '');
+    if (tradeDate && !/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
+      wx.showToast({ title: '日期格式应为 YYYY-MM-DD', icon: 'none' });
+      return;
+    }
+    // 与 callParse 一致的展示口径：split/stock_dividend 无现金流，展示 ratio 或份额
+    let amountText = amount.toFixed(2);
+    if (t.type === 'split' && ratio > 0) {
+      amountText = ratio > 1 ? `1拆${ratio}` : `${(1 / ratio).toFixed(0)}合1`;
+    } else if (t.type === 'stock_dividend' && shares > 0) {
+      amountText = `送 ${shares} 股`;
+    }
+    const updated = {
+      ...t,
+      shares,
+      price,
+      fee,
+      ratio,
+      amount: Number(amount.toFixed(2)),
+      trade_date: tradeDate,
+      typeLabel: TYPE_LABELS[t.type] || t.type,
+      amountText,
+      feeText: fee > 0 ? `（手续费 ¥${fee.toFixed(2)}）` : '',
+    };
+    const list = this.data.parsedTrades.slice();
+    list[idx] = updated;
+    this.setData({ parsedTrades: list, editVisible: false, editIndex: -1, editTrade: null });
+    wx.showToast({ title: '已保存', icon: 'success' });
+  },
+
   /** 确认导入：用解析后的 trades 走 mode=json 写入 */
   async onConfirmImport() {
+    if (this.data.importing) return;       // 防止按钮被双击导致重复导入
     if (this.data.parsedTrades.length === 0) {
       wx.showToast({ title: '没有可导入的交易', icon: 'none' });
       return;
@@ -190,6 +291,7 @@ Page({
       content: `将导入 ${this.data.parsedTrades.length} 笔交易到「${this.data.accountNames[this.data.accountIndex]}」账户，并自动同步持仓。是否继续？`,
       success: async (r) => {
         if (!r.confirm) return;
+        // 立即锁定按钮，避免模态弹层关闭后用户再次点击造成重复提交
         this.setData({ importing: true });
         wx.showLoading({ title: '导入中...', mask: true });
         try {
@@ -203,10 +305,13 @@ Page({
             shares: t.shares,
             price: t.price,
             fee: t.fee,
+            ratio: t.ratio || 0,
             amount: t.amount,
             trade_date: t.trade_date,
             note: t.note,
           }));
+          // 生成一次性 request_id：作为云函数幂等去重 key，避免双击/网络重试导致重复持仓
+          const request_id = 'imp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
           const result = await wx.cloud.callFunction({
             name: 'parse_trades_by_text',
             data: {
@@ -214,17 +319,22 @@ Page({
               json: cleanTrades,
               account_id,
               dry_run: false,
+              request_id,
             },
+            timeout: 60000,
           });
           wx.hideLoading();
           const res = result.result || {};
           if (res.success) {
             let content = res.message || `成功导入 ${res.imported || 0} 笔`;
+            if (res.deduped) {
+              content = '本次导入已存在，未重复写入（已自动跳过）';
+            }
             if (res.warnings && res.warnings.length > 0) {
               content += '\n\n注意事项：\n' + res.warnings.slice(0, 5).map(w => '• ' + w).join('\n');
             }
             wx.showModal({
-              title: '导入完成',
+              title: res.deduped ? '已跳过重复导入' : '导入完成',
               content: content,
               showCancel: false,
               success: () => {

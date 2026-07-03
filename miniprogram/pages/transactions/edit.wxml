@@ -29,7 +29,7 @@
 
     <view class="form-group">
       <text class="form-label">产品代码</text>
-      <input class="input-field" placeholder="买入/卖出时必填，如 600036" value="{{form.product_code}}" bindinput="onCodeInput" />
+      <input class="input-field" placeholder="买卖/分红/红股/拆分时必填，如 600036" value="{{form.product_code}}" bindinput="onCodeInput" />
       <view class="lookup-hint" wx:if="{{codeLookupHint}}">{{codeLookupHint}}</view>
       <view class="suggestions" wx:if="{{codeSuggestions.length > 0}}">
         <view
@@ -62,6 +62,8 @@
           bindtap="onSelectSuggestion"
           data-code="{{item.code}}"
           data-name="{{item.name}}"
+          data-type="{{item.type}}"
+          data-exchange="{{item.exchange}}"
         >
           <view class="suggestion-left">
             <text class="suggestion-name">{{item.name}}</text>
@@ -72,22 +74,28 @@
       </view>
     </view>
 
-    <view class="form-group">
-      <text class="form-label">份额 / 数量</text>
+    <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell' || form.type === 'ipo_win' || form.type === 'stock_dividend'}}">
+      <text class="form-label">{{form.type === 'stock_dividend' ? '红股份额 *' : '份额 / 数量'}}</text>
       <input class="input-field" type="digit" placeholder="0" value="{{form.shares}}" bindinput="onSharesInput" />
     </view>
 
-    <view class="form-group">
-      <text class="form-label">单价</text>
+    <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell' || form.type === 'ipo_win'}}">
+      <text class="form-label">{{form.type === 'ipo_win' ? '发行价' : '单价'}}</text>
       <input class="input-field" type="digit" placeholder="0.00" value="{{form.price}}" bindinput="onPriceInput" />
     </view>
 
-    <view class="form-group">
-      <text class="form-label">金额 *</text>
-      <input class="input-field" type="digit" placeholder="0.00（份额×单价自动计算）" value="{{form.amount}}" bindinput="onAmountInput" />
+    <view class="form-group" wx:if="{{form.type === 'split'}}">
+      <text class="form-label">拆分 / 合并比例 *</text>
+      <input class="input-field" type="digit" placeholder="如 3=1拆3，0.333=3合1" value="{{form.ratio}}" bindinput="onRatioInput" />
+      <view class="form-hint">拆分比例 &gt; 1（如 3=1拆3），合并比例 &lt; 1（如 0.333=3合1）；总资产不变，份额与成本价同步调整</view>
     </view>
 
-    <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell'}}">
+    <view class="form-group" wx:if="{{form.type !== 'stock_dividend' && form.type !== 'split'}}">
+      <text class="form-label">金额 *</text>
+      <input class="input-field" type="digit" placeholder="{{form.type === 'buy' || form.type === 'sell' || form.type === 'ipo_win' ? '0.00（份额×单价自动计算）' : '0.00'}}" value="{{form.amount}}" bindinput="onAmountInput" />
+    </view>
+
+    <view class="form-group" wx:if="{{form.type === 'buy' || form.type === 'sell' || form.type === 'ipo_win'}}">
       <text class="form-label">手续费</text>
       <input class="input-field" type="digit" placeholder="留空将按账户费率自动计算（买入计入成本，与同花顺口径一致）" value="{{form.fee}}" bindinput="onFeeInput" />
       <text class="form-hint" wx:if="{{feeHint}}">{{feeHint}}</text>

@@ -7,6 +7,8 @@
  *   eveningNews      Boolean  是否开启晚报
  *   priceAlert       Boolean  是否开启涨跌提醒
  *   alertThreshold   String   涨跌幅阈值（百分比，如 "3"）
+ *   tmplIds          Object   订阅消息模板 ID（用户在微信公众平台申请后填入）
+ *                            { morning, evening, price_alert }
  *
  * 返回：{ success: true } 或 { success: false, error }
  */
@@ -29,6 +31,15 @@ exports.main = async (event) => {
       alertThreshold: event.alertThreshold != null ? String(event.alertThreshold) : '3',
       updated_at: db.serverDate(),
     };
+
+    // 订阅消息模板 ID（用户填入，仅记录明文，便于 push_news / check_price_alert 读取）
+    if (event.tmplIds && typeof event.tmplIds === 'object') {
+      data.tmplIds = {
+        morning: String(event.tmplIds.morning || '').trim(),
+        evening: String(event.tmplIds.evening || '').trim(),
+        price_alert: String(event.tmplIds.price_alert || '').trim(),
+      };
+    }
 
     // upsert：按 _openid 唯一
     const existRes = await db.collection('notify_settings')

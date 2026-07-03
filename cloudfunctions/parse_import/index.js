@@ -51,6 +51,10 @@ exports.main = async (event) => {
     return { success: false, message: '请提供 CSV 数据', errors: [] };
   }
 
+  // 当前调用者 openid（用于多租户隔离，避免跨用户复用同名账户/持仓串改）
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext.OPENID || '';
+
   const lines = csvData.trim().split('\n');
   if (lines.length < 2) {
     return { success: false, message: 'CSV 数据至少需要一行表头+一行数据', errors: [] };
@@ -94,11 +98,12 @@ exports.main = async (event) => {
       if (shares <= 0) { errors.push(`第 ${lineNum} 行: 份额必须大于 0`); continue; }
       if (costPrice <= 0) { errors.push(`第 ${lineNum} 行: 成本价必须大于 0`); continue; }
 
-      // 获取或创建账户
+      // 获取或创建账户（按 name + openid 隔离，避免跨用户复用同名账户）
       let accountId = accountMap[accountName];
       if (!accountId) {
+        const accWhere = openid ? { name: accountName, _openid: openid } : { name: accountName };
         const { data: existingAcc } = await db.collection('accounts')
-          .where({ name: accountName })
+          .where(accWhere)
           .get();
 
         if (existingAcc.length > 0) {
@@ -111,6 +116,7 @@ exports.main = async (event) => {
               platform: 'other_broker',
               cash_balance: 0,
               sort_order: 0,
+              _openid: openid,
               created_at: db.serverDate(),
               updated_at: db.serverDate(),
             },
@@ -128,6 +134,7 @@ exports.main = async (event) => {
       await db.collection('holdings').add({
         data: {
           account_id: accountId,
+          _openid: openid,
           product_code: productCode,
           product_name: productName,
           product_type: productType,

@@ -98,8 +98,8 @@ const LLM_PROVIDERS = [
     models: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229'] },
   { key: 'bailian', name: '阿里百炼', defaultModel: 'qwen-max', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', icon: '🔥',
     models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen2.5-72b-instruct', 'qwen2.5-32b-instruct'] },
-  { key: 'mimo', name: '小米 MiMo', defaultModel: 'MiMo', baseURL: 'https://api.mi-ai.com/v1', icon: '📱',
-    models: ['MiMo', 'MiMo-Pro', 'MiMo-Lite'] },
+  { key: 'mimo', name: '小米 MiMo', defaultModel: 'mimo-v2.5-pro', baseURL: 'https://api.xiaomimimo.com/v1', icon: '📱',
+    models: ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-pro', 'mimo-v2-flash'] },
   { key: 'minimax', name: 'MiniMax', defaultModel: 'MiniMax-Text-01', baseURL: 'https://api.minimax.chat/v1', icon: '🅼',
     models: ['MiniMax-Text-01', 'abab6.5s-chat', 'abab5.5s-chat', 'MiniMax-VL-01'] },
   { key: 'custom', name: '自定义模型', defaultModel: '', baseURL: '', icon: '🔌',
@@ -120,9 +120,13 @@ const NEWS_CATEGORIES = [
 const TRANSACTION_TYPES = [
   { key: 'buy', name: '买入', sign: '-' },
   { key: 'sell', name: '卖出', sign: '+' },
+  { key: 'ipo_win', name: '打新中签', sign: '-' },
   { key: 'dividend', name: '分红', sign: '+' },
-  { key: 'transfer_in', name: '转入', sign: '+' },
-  { key: 'transfer_out', name: '转出', sign: '-' },
+  { key: 'stock_dividend', name: '红股入账', sign: '' },
+  { key: 'split', name: '拆分/合并', sign: '' },
+  { key: 'tax', name: '纳税', sign: '-' },
+  { key: 'transfer_in', name: '银证转入', sign: '+' },
+  { key: 'transfer_out', name: '银证转出', sign: '-' },
   { key: 'fee', name: '手续费', sign: '-' },
   { key: 'interest', name: '利息', sign: '+' },
 ];
@@ -142,6 +146,7 @@ const CLOUD_FUNCTIONS = {
   SAVE_NOTIFY_SETTINGS: 'save_notify_settings',
   GET_NOTIFY_SETTINGS: 'get_notify_settings',
   CHECK_PRICE_ALERT: 'check_price_alert',
+  INFER_INDUSTRY: 'infer_industry',
 };
 
 module.exports = {

@@ -6,8 +6,8 @@
     {
       "name": "priceAlertTrigger",
       "type": "timer",
-      "config": "50 14 * * 1-5"
+      "config": "0 50 14 * * 1-5 *"
     }
   ],
-  "env": "your-env-id"
+  "env": "cloud1-d6geurbo125795334"
 }

@@ -278,3 +278,67 @@
   background: var(--divider-color);
   margin: 0 var(--space-lg);
 }
+
+/* 打新战绩卡片 */
+.ipo-card {
+  padding: var(--space-md) var(--space-lg);
+}
+.ipo-count {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+}
+.ipo-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+  margin-bottom: 16rpx;
+}
+.ipo-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.ipo-stat-label {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  margin-bottom: 6rpx;
+}
+.ipo-stat-value {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.ipo-list {
+  margin-top: 8rpx;
+}
+.ipo-item {
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.ipo-item:last-child {
+  border-bottom: none;
+}
+.ipo-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+.ipo-item-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ipo-item-pnl {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.ipo-item-bottom {
+  display: flex;
+  justify-content: space-between;
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  flex-wrap: wrap;
+  gap: 8rpx;
+}

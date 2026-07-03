@@ -44,3 +44,16 @@
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8rpx;
+}
+.section-desc {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  margin-bottom: 12rpx;
+}

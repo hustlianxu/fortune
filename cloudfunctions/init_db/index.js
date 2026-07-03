@@ -66,6 +66,13 @@ const COLLECTIONS = [
     ],
   },
   {
+    name: 'analysis_tasks',
+    indexes: [
+      { name: 'idx_openid', field: { _openid: 1 } },
+      { name: 'idx_status', field: { status: 1, created_at: -1 } },
+    ],
+  },
+  {
     name: 'news_cache',
     indexes: [
       { name: 'idx_pub_time', field: { publish_time: -1 } },

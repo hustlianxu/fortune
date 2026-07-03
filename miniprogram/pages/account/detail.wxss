@@ -17,9 +17,46 @@
   padding-bottom: 20rpx;
   border-bottom: 1rpx solid var(--divider-color);
   margin-bottom: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.balance-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-left: 12rpx;
+}
+
+.balance-btn {
+  font-size: 24rpx;
+  color: #6c63ff;
+  padding: 6rpx 18rpx;
+  border: 1rpx solid #6c63ff;
+  border-radius: 24rpx;
+  line-height: 1.4;
 }
 
 .section-title { font-size: 28rpx; font-weight: 600; margin-bottom: 16rpx; }
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.section-title-row .section-title {
+  margin-bottom: 0;
+}
+.hide-cleared-toggle {
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+}
+.toggle-label {
+  font-size: 24rpx;
+}
 
 .chart-wrap {
   width: 100%;

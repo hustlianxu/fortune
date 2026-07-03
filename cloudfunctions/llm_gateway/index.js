@@ -52,7 +52,7 @@ const PROVIDERS = {
   chatgpt:  { baseURL: 'https://api.openai.com/v1', sdkType: 'openai', defaultModel: 'gpt-4o-mini' },
   claude:   { sdkType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514' },
   bailian:  { baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', sdkType: 'openai', defaultModel: 'qwen-max' },
-  mimo:     { baseURL: 'https://api.mi-ai.com/v1', sdkType: 'openai', defaultModel: 'MiMo' },
+  mimo:     { baseURL: 'https://api.xiaomimimo.com/v1', sdkType: 'openai', defaultModel: 'mimo-v2.5-pro' },
   minimax:  { baseURL: 'https://api.minimax.chat/v1', sdkType: 'openai', defaultModel: 'MiniMax-Text-01' },
   custom:   { baseURL: '', sdkType: 'openai', defaultModel: '' },
 };
@@ -279,7 +279,8 @@ async function callOpenAICompatible(provider, apiKey, messages, model) {
       temperature: 0.3,
       max_tokens: 4096,
     }),
-    timeout: 45000,
+    // 单次 LLM 调用最多 50s（外层 callAnalystSafely 也有 50s 保护，这里早一点触发 HTTP 超时，让 withTimeout 拿到结构化错误）
+    timeout: 50 * 1000,
   });
 
   if (!res.ok) {
@@ -322,7 +323,8 @@ async function callClaude(apiKey, messages, model) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
-    timeout: 45000,
+    // 单次 Claude 调用最多 50s
+    timeout: 50 * 1000,
   });
 
   if (!res.ok) {
@@ -345,22 +347,60 @@ async function callLLM(provider, apiKey, messages, model) {
 }
 
 /**
- * 带重试的 LLM 调用（指数退避，默认重试 2 次）
+ * 给单次 LLM 调用套一层超时包装
+ * @param {number} timeoutMs - 超时毫秒数
+ * @returns {Promise<{content:string, timedOut:boolean}>}
  */
-async function callLLMWithRetry(provider, apiKey, messages, model, retries) {
-  const max = typeof retries === 'number' ? retries : 2;
-  let lastErr;
-  for (let attempt = 0; attempt <= max; attempt++) {
-    try {
-      return await callLLM(provider, apiKey, messages, model);
-    } catch (err) {
-      lastErr = err;
-      if (attempt < max) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+function withTimeout(promise, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve({ content: '', timedOut: true });
       }
-    }
+    }, timeoutMs);
+    promise.then((content) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve({ content, timedOut: false });
+      }
+    }).catch((err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve({ content: '', timedOut: false, error: err.message });
+      }
+    });
+  });
+}
+
+/**
+ * 单分析师 LLM 调用：失败/超时不抛错，返回结构体（含 content/error/timedOut）
+ * 这样某一位分析师卡死不会让整次分析失败，最终仍能落库并返回部分结果。
+ * @param {number} timeoutMs - 单次调用超时毫秒数（默认 50s，多模型协作场景建议 25s）
+ */
+async function callAnalystSafely(provider, cfg, messages, timeoutMs) {
+  const apiKey = decrypt(cfg.api_key);
+  if (!apiKey) {
+    return { provider, content: '', error: 'API Key 解密失败', model: '' };
   }
-  throw lastErr;
+  const model = cfg.model || (PROVIDERS[provider] && PROVIDERS[provider].defaultModel) || '';
+  const effectiveTimeout = timeoutMs || (50 * 1000);
+  // 注意：callLLM 直接 resolve 为字符串，withTimeout 会将其包成 { content, timedOut }
+  // 切勿在 callLLM 后再 .then 包对象，否则 content 会变成嵌套对象，导致 parseAnalysisResult 报 content.match is not a function
+  const { content, timedOut, error } = await withTimeout(
+    callLLM(provider, apiKey, messages, model),
+    effectiveTimeout
+  );
+  return {
+    provider,
+    content: typeof content === 'string' ? content : '',
+    error: timedOut ? `调用超时（>${Math.round(effectiveTimeout / 1000)}s）` : (error || null),
+    timedOut: !!timedOut,
+    model,
+  };
 }
 
 /**
@@ -474,21 +514,45 @@ exports.main = async (event) => {
         { role: 'user', content: prompt },
       ];
 
-      // 并行调用各分析师模型（不同 provider 并发安全；单次失败不影响其他，带重试）
-      const subReports = await Promise.all(analystList.map(async (ap) => {
-        const cfg = userConfig.providers[ap];
-        const apiKey = decrypt(cfg.api_key);
-        if (!apiKey) {
-          return { provider: ap, content: '', error: 'API Key 解密失败' };
-        }
-        const model = cfg.model || PROVIDERS[ap].defaultModel || '';
-        try {
-          const content = await callLLMWithRetry(ap, apiKey, messages, model);
-          return { provider: ap, content, model };
-        } catch (err) {
-          return { provider: ap, content: '', error: err.message };
-        }
-      }));
+      // 并行调用分析师模型（不同 provider 互不限流，并行可将 N×25s 压缩为 25s）。
+      // 使用 callAnalystSafely：单个分析师超时/失败不会中断整次分析，
+      // 失败的会以 error/timedOut 形式记录在 subReports 中，最终仍能落库。
+      // 单分析师超时设为 25s（并行 + 汇总 25s ≈ 50s，留 10s 给 DB 收尾，确保 < 60s 云函数上限，
+      // 避免 wx.cloud.callFunction 出现 -404010 result expired 错误）。
+      const subReports = await Promise.all(
+        analystList.map(ap => callAnalystSafely(ap, userConfig.providers[ap], messages, 25 * 1000))
+      );
+
+      const successCount = subReports.filter(r => r.content).length;
+      // 全部分析师失败 → 仍然落库一条「失败占位」报告，便于前端轮询拉到结果
+      if (successCount === 0) {
+        const errMsg = subReports.map(r => `${r.provider}: ${r.error || '未知错误'}`).join('; ');
+        await db.collection('analysis_reports').add({
+          data: {
+            _openid: openid,
+            type: analysisType,
+            provider: synthProvider,
+            model: '',
+            analysts: analystList,
+            synthesizer: '',
+            snapshot_date: new Date().toISOString().split('T')[0],
+            summary: '本次分析全部分析师调用失败，请稍后重试。',
+            report_content: `本次分析调用失败：${errMsg}`,
+            key_findings: [],
+            risk_level: '',
+            partial: true,
+            failed: true,
+            created_at: db.serverDate(),
+          },
+        });
+        return {
+          success: false,
+          message: `所有分析师调用失败：${errMsg}`,
+          partial: true,
+          subReports,
+          multiMode: true,
+        };
+      }
 
       // 仅一个分析师 或 汇总模型与唯一分析师相同 → 直接返回该报告（无需汇总）
       let finalContent;
@@ -496,30 +560,33 @@ exports.main = async (event) => {
       if (analystList.length === 1) {
         finalContent = subReports[0].content;
       } else {
-        // 多分析师 → 调汇总模型
+        // 多分析师 → 调汇总模型（同样使用超时保护，避免汇总卡死；25s 与分析师并行阶段一致）
         const synthCfg = userConfig.providers[synthProvider];
-        const synthApiKey = decrypt(synthCfg.api_key);
-        if (!synthApiKey) {
-          return { success: false, message: '汇总模型 API Key 解密失败' };
-        }
-        const synthModel = synthCfg.model || PROVIDERS[synthProvider].defaultModel || '';
-        const synthPrompt = buildSynthesisPrompt(analysisType, subReports);
-        const synthMessages = [
+        const synthR = await callAnalystSafely(synthProvider, synthCfg, [
           { role: 'system', content: '你是一位首席投资顾问，擅长综合多方观点给出最终结论。使用中文回复。' },
-          { role: 'user', content: synthPrompt },
-        ];
-        finalContent = await callLLMWithRetry(synthProvider, synthApiKey, synthMessages, synthModel);
-        usedSynth = true;
+          { role: 'user', content: buildSynthesisPrompt(analysisType, subReports) },
+        ], 25 * 1000);
+        if (synthR.content) {
+          finalContent = synthR.content;
+          usedSynth = true;
+        } else {
+          // 汇总失败 → 退化为「拼接所有成功分析师报告」作为最终内容
+          finalContent = subReports
+            .filter(r => r.content)
+            .map((r, i) => `=== 分析师 ${i + 1}（${r.provider}）的独立报告 ===\n${r.content}`)
+            .join('\n\n');
+        }
       }
 
-      // 解析并保存报告
+      // 解析并保存报告（即便部分分析师失败，也保留可读结果）
       const parsed = parseAnalysisResult(finalContent);
+      const partial = successCount < analystList.length;
       await db.collection('analysis_reports').add({
         data: {
           _openid: openid,
           type: analysisType,
           provider: synthProvider,
-          model: usedSynth ? (userConfig.providers[synthProvider].model || PROVIDERS[synthProvider].defaultModel || '') : (subReports[0].model || ''),
+          model: usedSynth ? (userConfig.providers[synthProvider].model || PROVIDERS[synthProvider].defaultModel || '') : (subReports.find(r => r.content) || {}).model || '',
           analysts: analystList,
           synthesizer: usedSynth ? synthProvider : '',
           snapshot_date: new Date().toISOString().split('T')[0],
@@ -527,6 +594,7 @@ exports.main = async (event) => {
           report_content: finalContent,
           key_findings: parsed.key_findings,
           risk_level: parsed.risk_level,
+          partial,
           created_at: db.serverDate(),
         },
       });
@@ -534,22 +602,19 @@ exports.main = async (event) => {
       return {
         success: true,
         report: parsed,
-        subReports,          // 各分析师原始报告（供前端折叠展示）
+        subReports,
         multiMode: true,
+        partial,
       };
     }
 
-    // ============ 单 AI 模式（保持原逻辑） ============
+    // ============ 单 AI 模式（保持原逻辑，但增加超时保护与失败落库） ============
     if (!userConfig.providers[provider]) {
       return { success: false, message: `请先在设置中配置 ${provider} 的 API Key` };
     }
     const providerConfig = userConfig.providers[provider];
     if (!providerConfig.enabled || !providerConfig.api_key) {
       return { success: false, message: `${provider} 未启用或未配置 API Key` };
-    }
-    const apiKey = decrypt(providerConfig.api_key);
-    if (!apiKey) {
-      return { success: false, message: 'API Key 解密失败，请重新配置' };
     }
 
     // 构建 Prompt
@@ -565,39 +630,95 @@ exports.main = async (event) => {
       ];
     }
 
-    // 调用 LLM
-    const model = providerConfig.model || PROVIDERS[provider].defaultModel || '';
-    const content = await callLLMWithRetry(provider, apiKey, messages, model);
+    // 调用 LLM（超时保护，单次最多 55s，给云函数留出收尾时间）
+    const r = await callAnalystSafely(provider, providerConfig, messages);
+    const content = r.content || '';
 
-    // 保存分析报告
-    if (type !== 'qa') {
-      const parsed = parseAnalysisResult(content);
+    // QA 类型：内容为空说明调用失败
+    if (type === 'qa') {
+      if (!content) {
+        return {
+          success: false,
+          message: r.error || r.timedOut ? 'AI 调用超时，请稍后在「分析报告」中查看结果' : 'AI 调用失败',
+          partial: true,
+        };
+      }
+      return { success: true, answer: content };
+    }
+
+    // 分析类：即便内容为空也落库一条失败占位报告，便于前端 30 分钟内轮询拉到结果
+    if (!content) {
       await db.collection('analysis_reports').add({
         data: {
           _openid: openid,
           type,
           provider,
-          model,
+          model: r.model || '',
           snapshot_date: new Date().toISOString().split('T')[0],
-          summary: parsed.summary,
-          report_content: content,
-          key_findings: parsed.key_findings,
-          risk_level: parsed.risk_level,
+          summary: '本次分析调用失败，请稍后重试。',
+          report_content: `本次分析调用失败：${r.error || (r.timedOut ? '调用超时' : '未知错误')}`,
+          key_findings: [],
+          risk_level: '',
+          partial: true,
+          failed: true,
           created_at: db.serverDate(),
         },
       });
-
-      return { success: true, report: parsed };
+      return {
+        success: false,
+        message: r.error || (r.timedOut ? 'AI 调用超时，云函数仍在收尾。请稍后回到本页查看最新报告' : 'AI 调用失败'),
+        partial: true,
+      };
     }
 
-    // QA 类型直接返回答案
-    return { success: true, answer: content };
+    // 保存分析报告
+    const parsed = parseAnalysisResult(content);
+    await db.collection('analysis_reports').add({
+      data: {
+        _openid: openid,
+        type,
+        provider,
+        model: r.model || '',
+        snapshot_date: new Date().toISOString().split('T')[0],
+        summary: parsed.summary,
+        report_content: content,
+        key_findings: parsed.key_findings,
+        risk_level: parsed.risk_level,
+        created_at: db.serverDate(),
+      },
+    });
+
+    return { success: true, report: parsed };
 
   } catch (err) {
     console.error('[llm_gateway] error:', err);
+    // 兜底：异常情况下也尝试落库一条失败记录，便于前端轮询拉到结果
+    try {
+      const wxContext = cloud.getWXContext();
+      const openid = wxContext.OPENID || '';
+      await db.collection('analysis_reports').add({
+        data: {
+          _openid: openid,
+          type: event.type || 'portfolio_health',
+          provider: event.provider || '',
+          model: '',
+          snapshot_date: new Date().toISOString().split('T')[0],
+          summary: '本次分析异常终止。',
+          report_content: `云函数异常：${err.message || '未知错误'}`,
+          key_findings: [],
+          risk_level: '',
+          partial: true,
+          failed: true,
+          created_at: db.serverDate(),
+        },
+      });
+    } catch (e) {
+      console.error('[llm_gateway] fallback save error:', e);
+    }
     return {
       success: false,
       message: err.message || 'AI 分析请求失败',
+      partial: true,
     };
   }
 };

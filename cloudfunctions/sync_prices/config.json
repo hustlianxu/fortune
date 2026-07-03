@@ -6,8 +6,8 @@
     {
       "name": "dailySyncTrigger",
       "type": "timer",
-      "config": "30 8 * * 1-5"
+      "config": "30 15 * * 1-5"
     }
   ],
-  "env": "your-env-id"
+  "env": "cloud1-d6geurbo125795334"
 }

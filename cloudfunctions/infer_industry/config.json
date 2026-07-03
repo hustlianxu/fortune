@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "triggers": [],
+  "env": "cloud1-d6geurbo125795334",
+  "timeout": 60
+}

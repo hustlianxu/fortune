@@ -32,7 +32,43 @@ function recomputeTotalPnl(holding, marketValue, costValue) {
   const realized = Number(holding.realized_pnl) || 0;
   const dividend = Number(holding.total_dividend) || 0;
   const fee = Number(holding.total_fee) || 0;
-  return Number((mv - cv + realized + dividend).toFixed(2));
+  return Number((mv - cv + realized + dividend - fee).toFixed(2));
+}
+
+// 根据产品代码推断 product_type（用于交易缺类型时兜底，提交 487d457）
+function inferProductType(code, accountType) {
+  if (!code) return '';
+  const c = String(code).trim().toUpperCase();
+  if (/^\d{5}$/.test(c)) return 'hk_stock';
+  if (/^[A-Z]/.test(c)) return 'us_stock';
+  if (/^\d{6}$/.test(c)) {
+    if (/^5[012]/.test(c)) return 'etf';
+    if (/^56/.test(c)) return 'etf';
+    if (/^58/.test(c)) return 'reit';
+    if (/^15/.test(c)) return 'etf';
+    if (/^16/.test(c)) return 'lof';
+    if (/^18/.test(c)) return 'reit';
+    if (/^6[08]/.test(c)) return 'stock';
+    if (/^0[03]/.test(c)) return 'stock';
+    if (accountType === 'fund_platform' || accountType === 'fund') return 'fund_mix';
+    return 'stock';
+  }
+  return '';
+}
+
+// 推断交易所（提交 487d457）
+function inferExchange(code) {
+  if (!code) return '';
+  const c = String(code).trim().toUpperCase();
+  if (/^\d{5}$/.test(c)) return 'HK';
+  if (/^[A-Z]/.test(c)) return 'US';
+  if (/^\d{6}$/.test(c)) {
+    if (/^6[08]/.test(c)) return 'SH';
+    if (/^5[0128]/.test(c)) return 'SH';
+    if (/^0[03]/.test(c)) return 'SZ';
+    if (/^1[568]/.test(c)) return 'SZ';
+  }
+  return '';
 }
 
 exports.main = async (event) => {
@@ -42,10 +78,6 @@ exports.main = async (event) => {
   }
 
   try {
-    // 当前调用者 openid（用于新建持仓归属 + 查询隔离）
-    const wxContext = cloud.getWXContext();
-    const openid = wxContext.OPENID || '';
-
     // 1. 读取交易
     const txnRes = await db.collection('transactions').doc(transaction_id).get();
     const txn = txnRes.data;
@@ -57,9 +89,6 @@ exports.main = async (event) => {
     if (txn.applied_holding) {
       return { success: true, message: '已应用过，跳过', skipped: true };
     }
-
-    // 归属人优先取交易记录上的 _openid，回退当前调用者
-    const ownerOpenid = txn._openid || openid;
 
     const type = txn.type;
     const fee = Number(txn.fee) || 0;
@@ -74,11 +103,21 @@ exports.main = async (event) => {
         return { success: true, message: '分红/利息缺账户或代码，仅记录', skipped: true };
       }
       const existRes = await db.collection('holdings').where({
-        _openid: ownerOpenid,
         account_id: txn.account_id,
         product_code: txn.product_code,
-      }).limit(1).get();
-      const existing = existRes.data[0];
+      }).get();
+      const existList = (existRes && existRes.data) || [];
+      const existing = existList[0];
+      // 清理历史重复持仓（与 buy/sell 分支保持一致）
+      if (existList.length > 1) {
+        for (let k = 1; k < existList.length; k++) {
+          try {
+            await db.collection('holdings').doc(existList[k]._id).remove();
+          } catch (e) {
+            console.warn('[apply_transaction] dividend dedup remove failed:', e);
+          }
+        }
+      }
       if (!existing) {
         await db.collection('transactions').doc(transaction_id).update({
           data: { applied_holding: true, applied_at: db.serverDate() },
@@ -124,14 +163,29 @@ exports.main = async (event) => {
       return { success: false, message: '交易份额无效' };
     }
 
-    // 4. 查询对应持仓（_openid + account_id + product_code）
+    // 4. 查询对应持仓（account_id + product_code）
+    //    使用聚合查询拉取全部匹配项（处理历史可能存在的重复持仓）：
+    //    - 若有多条，保留第一条用于更新，其余视为脏数据待清理
+    //    - 配合 db.runTransaction 保证「查无则建」的原子性，避免并发 apply 时双建持仓
     const existRes = await db.collection('holdings').where({
-      _openid: ownerOpenid,
       account_id: txn.account_id,
       product_code: txn.product_code,
-    }).limit(1).get();
+    }).get();
+    const existList = (existRes && existRes.data) || [];
+    const existing = existList[0] || null;
 
-    const existing = existRes.data[0];
+    // 清理历史可能存在的重复持仓（同 account_id + product_code 多条）：
+    // 只保留第一条，其余直接删除，避免「语音录入生成两个重复持仓」
+    if (existList.length > 1) {
+      for (let k = 1; k < existList.length; k++) {
+        try {
+          await db.collection('holdings').doc(existList[k]._id).remove();
+        } catch (e) {
+          console.warn('[apply_transaction] dedup remove failed:', e);
+        }
+      }
+    }
+
     let resultHolding;
 
     if (type === 'buy') {
@@ -171,7 +225,6 @@ exports.main = async (event) => {
         const newCostPrice = shares > 0 ? buyCost / shares : price;
         const marketValue = Number((shares * price).toFixed(2));
         const newHolding = {
-          _openid: ownerOpenid,
           account_id: txn.account_id,
           product_code: txn.product_code,
           product_name: txn.product_name || txn.product_code,

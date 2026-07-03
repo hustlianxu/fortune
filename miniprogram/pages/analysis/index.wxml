@@ -1,0 +1,84 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
+<view class="page">
+  <view class="card">
+    <view class="page-title">📊 多维度分析</view>
+
+    <!-- 维度切换 -->
+    <scroll-view class="dim-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view
+        class="dim-tab {{currentDim === item.key ? 'active' : ''}}"
+        wx:for="{{dimensions}}" wx:key="key"
+        bindtap="onDimChange" data-dim="{{item.key}}"
+      >
+        {{item.name}}
+      </view>
+    </scroll-view>
+
+    <!-- 总览 -->
+    <view class="overview-row" wx:if="{{!loading}}">
+      <view class="overview-item">
+        <text class="overview-label">总市值</text>
+        <text class="overview-value">¥{{fmt.formatMoney(totalMarketValue)}}</text>
+      </view>
+      <view class="overview-item">
+        <text class="overview-label">总盈亏</text>
+        <text class="overview-value {{fmt.pnlClass(totalPnL)}}">{{fmt.pnlSign(totalPnL)}}¥{{fmt.formatMoney(totalPnL)}}</text>
+      </view>
+      <view class="overview-item">
+        <text class="hide-toggle" bindtap="onToggleHideCleared">{{hideCleared ? '☑' : '☐'}} 隐藏清仓</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 分组列表 -->
+  <block wx:if="{{!loading}}" wx:for="{{groups}}" wx:key="name">
+    <view class="card">
+      <view class="group-header" bindtap="onToggleGroup" data-name="{{item.name}}">
+        <text class="group-toggle">{{expandedGroups[item.name] ? '▼' : '▶'}}</text>
+        <text class="group-name">{{item.name}}</text>
+        <text class="group-count">{{item.count}}只</text>
+        <text class="group-value">¥{{fmt.formatMoney(item.marketValue)}}</text>
+        <text class="group-pnl {{fmt.pnlClass(item.pnl)}}">{{fmt.pnlSign(item.pnl)}}{{fmt.formatMoney(item.pnl)}}</text>
+      </view>
+
+      <view class="group-bar" wx:if="{{totalMarketValue > 0}}">
+        <view class="group-bar-fill" style="width: {{item.marketValue / totalMarketValue * 100}}%"></view>
+      </view>
+      <view class="group-pct">占比 {{item.marketValue / totalMarketValue * 100}}% · 成本 ¥{{fmt.formatMoney(item.costValue)}} · 收益率 {{fmt.pnlSign(item.pnlPercent)}}{{item.pnlPercent}}%</view>
+
+      <view wx:if="{{expandedGroups[item.name]}}" class="group-detail">
+        <view class="detail-item" wx:for="{{item.holdings}}" wx:for-item="h" wx:key="_id"
+              bindtap="onHoldingTap" data-id="{{h._id}}">
+          <view class="detail-top">
+            <text class="detail-name">{{h.product_name}}</text>
+            <text class="detail-pnl {{fmt.pnlClass(h.total_pnL || h.pnl)}}">{{fmt.pnlSign(h.total_pnL || h.pnl)}}¥{{fmt.formatMoney(h.total_pnL || h.pnl)}}</text>
+          </view>
+          <view class="detail-bottom">
+            <text>{{h.product_code}}</text>
+            <text>市值: ¥{{fmt.formatMoney(h.market_value)}}</text>
+            <text>份额: {{fmt.formatQuantity(h.shares)}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <view class="empty-state" wx:if="{{!loading && groups.length === 0}}">
+    <text>暂无持仓数据</text>
+  </view>
+
+  <view class="loading-state" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <view class="card hint-card" wx:if="{{!loading && currentDim === 'product_type'}}">
+    <text class="hint-text">💡 产品类型由系统按代码自动识别（60/68=股票，50/51/52=ETF，16=LOF等）。如识别有误可在持仓编辑页修改。</text>
+  </view>
+  <view class="card hint-card" wx:if="{{!loading && currentDim === 'strategy'}}">
+    <text class="hint-text">💡 策略维度依赖持仓的「策略/计划名称」字段。在持仓编辑页可填写（如：长赢150份、S定投、螺丝钉定投），未填写的将归入「未分类」。</text>
+  </view>
+  <view class="card hint-card" wx:if="{{!loading && currentDim === 'industry'}}">
+    <text class="hint-text">💡 行业维度依赖持仓的「行业」字段。可在持仓列表点「🏷 刷新行业」由 AI 自动推断（不覆盖手填值），或在持仓编辑页手动填写。未填写的将归入「未分类」。</text>
+  </view>
+</view>

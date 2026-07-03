@@ -6,13 +6,13 @@
     {
       "name": "morningNews",
       "type": "timer",
-      "config": "0 8 * * *"
+      "config": "0 0 8 * * * *"
     },
     {
       "name": "eveningNews",
       "type": "timer",
-      "config": "0 17 * * *"
+      "config": "0 0 17 * * * *"
     }
   ],
-  "env": "your-env-id"
+  "env": "cloud1-d6geurbo125795334"
 }

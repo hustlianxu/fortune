@@ -1,0 +1,87 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
+<wxs src="../../utils/constants.wxs" module="c" />
+<view class="page">
+  <view class="card" wx:if="{{!loading && stats.count > 0}}">
+    <view class="page-title">🎯 打新战绩</view>
+
+    <view class="summary-grid">
+      <view class="summary-item">
+        <text class="summary-label">中签次数</text>
+        <text class="summary-value">{{stats.count}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">累计投入</text>
+        <text class="summary-value">¥{{fmt.formatMoney(stats.totalInvest)}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">当前市值</text>
+        <text class="summary-value">¥{{fmt.formatMoney(stats.currentValue)}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">累计盈亏</text>
+        <text class="summary-value {{pnlColor}}">{{fmt.pnlSign(stats.currentPnl)}}¥{{fmt.formatMoney(stats.currentPnl)}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">收益率</text>
+        <text class="summary-value {{pnlColor}}">{{fmt.pnlSign(stats.pnlPercent)}}{{stats.pnlPercent}}%</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-label">已实现盈亏</text>
+        <text class="summary-value {{fmt.pnlClass(stats.realizedPnl)}}">{{fmt.pnlSign(stats.realizedPnl)}}¥{{fmt.formatMoney(stats.realizedPnl)}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 年度统计 -->
+  <view class="card" wx:if="{{yearlyStats.length > 0}}">
+    <view class="section-title">📅 年度统计</view>
+    <view class="year-row year-header">
+      <text class="year-cell year-year">年度</text>
+      <text class="year-cell">中签</text>
+      <text class="year-cell">投入</text>
+      <text class="year-cell">盈亏</text>
+    </view>
+    <view class="year-row" wx:for="{{yearlyStats}}" wx:key="year">
+      <text class="year-cell year-year">{{item.year}}</text>
+      <text class="year-cell">{{item.count}}次</text>
+      <text class="year-cell">¥{{fmt.formatMoney(item.invest)}}</text>
+      <text class="year-cell {{fmt.pnlClass(item.pnl)}}">{{fmt.pnlSign(item.pnl)}}¥{{fmt.formatMoney(item.pnl)}}</text>
+    </view>
+  </view>
+
+  <!-- 明细列表 -->
+  <view class="card" wx:if="{{list.length > 0}}">
+    <view class="section-title">📋 中签明细（按盈亏排序）</view>
+    <view class="ipo-item" wx:for="{{list}}" wx:key="product_code"
+          bindtap="onHoldingTap" data-code="{{item.product_code}}">
+      <view class="ipo-item-top">
+        <view class="ipo-item-name-row">
+          <text class="ipo-item-name">{{item.product_name}}</text>
+          <text class="cleared-tag" wx:if="{{item.is_cleared}}">已清仓</text>
+        </view>
+        <text class="ipo-item-pnl {{fmt.pnlClass(item.pnl)}}">{{fmt.pnlSign(item.pnl)}}¥{{fmt.formatMoney(item.pnl)}}</text>
+      </view>
+      <view class="ipo-item-mid">
+        <text class="ipo-code">{{item.product_code}}</text>
+        <text class="ipo-count">中签 {{item.ipo_count}} 次</text>
+      </view>
+      <view class="ipo-item-bottom">
+        <text>发行价: ¥{{fmt.formatMoney(item.ipo_price)}}</text>
+        <text>中签: {{item.ipo_shares}}股</text>
+        <text>现价: ¥{{fmt.formatMoney(item.current_price)}}</text>
+        <text>剩余: {{item.current_shares}}股</text>
+      </view>
+      <view class="ipo-item-date" wx:if="{{item.first_date}}">首签日: {{item.first_date}}</view>
+    </view>
+  </view>
+
+  <view class="empty-state" wx:if="{{!loading && stats.count === 0}}">
+    <text class="empty-icon">🎯</text>
+    <text>暂无打新中签记录</text>
+    <text class="empty-hint">在交易记录中选择「打新中签」类型录入新股中签</text>
+  </view>
+
+  <view class="loading-state" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+</view>

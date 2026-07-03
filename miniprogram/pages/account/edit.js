@@ -301,12 +301,20 @@ Page({
           wx.showLoading({ title: '删除中...' });
           try {
             const db = wx.cloud.database();
-            // 删除持仓
-            const { data: holdings } = await db.collection('holdings')
-              .where({ account_id: this.data.accountId })
-              .get();
-            const deleteHoldings = holdings.map(h => db.collection('holdings').doc(h._id).remove());
-            await Promise.all(deleteHoldings);
+            // 分页删除该账户下全部持仓（客户端单次 get 上限 20，避免留下孤儿持仓）
+            // 删除后记录会上移，故始终从 skip=0 拉取，直到取不到数据为止
+            const PAGE_SIZE = 20;
+            let safety = 0;
+            while (safety < 500) {
+              const { data: batch } = await db.collection('holdings')
+                .where({ account_id: this.data.accountId })
+                .limit(PAGE_SIZE)
+                .get();
+              if (batch.length === 0) break;
+              await Promise.all(batch.map(h => db.collection('holdings').doc(h._id).remove()));
+              if (batch.length < PAGE_SIZE) break;
+              safety++;
+            }
 
             // 删除账户
             await db.collection('accounts').doc(this.data.accountId).remove();

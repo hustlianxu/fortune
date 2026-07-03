@@ -106,9 +106,13 @@ var transactionTypeName = function (key) {
   var map = {
     buy: '买入',
     sell: '卖出',
+    ipo_win: '打新中签',
     dividend: '分红',
-    transfer_in: '转入',
-    transfer_out: '转出',
+    stock_dividend: '红股入账',
+    split: '拆分/合并',
+    tax: '纳税',
+    transfer_in: '银证转入',
+    transfer_out: '银证转出',
     fee: '手续费',
     interest: '利息',
   };
@@ -121,7 +125,11 @@ var transactionTypeClass = function (key) {
   var map = {
     buy: 'txn-buy',
     sell: 'txn-sell',
+    ipo_win: 'txn-buy',
     dividend: 'txn-in',
+    stock_dividend: 'txn-in',
+    split: 'txn-flat',
+    tax: 'txn-out',
     transfer_in: 'txn-in',
     transfer_out: 'txn-out',
     fee: 'txn-out',
@@ -134,7 +142,7 @@ var transactionTypeClass = function (key) {
 var transactionSign = function (key) {
   if (!key) return '';
   if (key === 'sell' || key === 'dividend' || key === 'transfer_in' || key === 'interest') return '+';
-  if (key === 'buy' || key === 'transfer_out' || key === 'fee') return '-';
+  if (key === 'buy' || key === 'ipo_win' || key === 'transfer_out' || key === 'fee' || key === 'tax') return '-';
   return '';
 };
 

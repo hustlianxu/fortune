@@ -35,11 +35,48 @@
     </view>
   </view>
 
+  <!-- ═══════ 订阅消息模板 ID 录入 ═══════ -->
+  <view class="card">
+    <view class="section-title">订阅消息模板 ID</view>
+    <view class="section-desc">
+      请先在微信公众平台「订阅消息」后台申请模板，将申请到的模板 ID 填入对应项；
+      未填写的项即使开关已开启，也不会推送。
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">早报模板 ID</text>
+      <input
+        class="input-field"
+        placeholder="如 XX_XX_XX_XX"
+        value="{{tmplIds.morning}}"
+        bindinput="onMorningTmplInput"
+      />
+    </view>
+    <view class="form-group">
+      <text class="form-label">晚报模板 ID</text>
+      <input
+        class="input-field"
+        placeholder="如 XX_XX_XX_XX"
+        value="{{tmplIds.evening}}"
+        bindinput="onEveningTmplInput"
+      />
+    </view>
+    <view class="form-group">
+      <text class="form-label">涨跌提醒模板 ID</text>
+      <input
+        class="input-field"
+        placeholder="如 XX_XX_XX_XX"
+        value="{{tmplIds.price_alert}}"
+        bindinput="onPriceAlertTmplInput"
+      />
+    </view>
+  </view>
+
   <view class="card">
     <button class="btn-primary" bindtap="onSave">保存设置</button>
   </view>
 
   <view class="card notice">
-    <text class="notice-text">提示：推送功能依赖微信订阅消息，您需要在收到推送时点击「允许」以开启推送权限。</text>
+    <text class="notice-text">提示：推送功能依赖微信订阅消息。保存后需在弹窗中点击「允许」以授权推送。已开启项未填模板 ID 时不会推送。</text>
   </view>
 </view>

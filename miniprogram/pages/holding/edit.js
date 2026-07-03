@@ -3,6 +3,7 @@
  * 支持产品代码自动补全名称，产品名称搜索建议
  */
 const { PRODUCT_TYPES, PRODUCT_TYPE_TREE } = require('../../utils/constants');
+const { inferProductType, inferExchange } = require('../../utils/inferProduct');
 
 Page({
   data: {
@@ -13,6 +14,7 @@ Page({
     accountIndex: 0,
     typeIndex: 0,
     typeNames: [],
+    typeKeys: [],
     exchangeIndex: 0,
     today: '',
     form: {
@@ -27,6 +29,10 @@ Page({
       note: '',
       // 策略/跟投计划标签
       strategy: '',
+      // 行业分类（用于多维度分析，如：银行、半导体、新能源）
+      industry: '',
+      // 是否参与「刷新行业」AI 推断任务（默认开启）
+      industry_auto_refresh: true,
       // 单基金费率覆盖（优先级 > 账户层级配置）
       management_fee_rate: '',
       custodian_fee_rate: '',
@@ -41,17 +47,23 @@ Page({
   },
 
   async onLoad(options) {
-    // 初始化产品类型
+    // 初始化产品类型：扁平化 tree 为 typeNames + typeKeys（一一对应）
     const typeNames = [];
+    const typeKeys = [];
     PRODUCT_TYPE_TREE.forEach(item => {
       if (item.children) {
-        item.children.forEach(c => typeNames.push(`${item.label} - ${c.label}`));
+        item.children.forEach(c => {
+          typeNames.push(`${item.label} - ${c.label}`);
+          typeKeys.push(c.key);
+        });
       } else {
         typeNames.push(item.label);
+        typeKeys.push(item.key);
       }
     });
     this.setData({
       typeNames,
+      typeKeys,
       today: new Date().toISOString().split('T')[0],
     });
 
@@ -96,9 +108,13 @@ Page({
 
       const accIdx = this.data.accounts.findIndex(a => a._id === h.account_id);
       const acc = this.data.accounts[accIdx] || {};
+      // 同步 typeIndex：根据 product_type 反查 picker 索引（修复编辑回显时显示恒为"A股"的 Bug）
+      const typeIdx = this.data.typeKeys.indexOf(h.product_type);
+      const exIdx = ['SH', 'SZ', 'HK', 'US'].indexOf(h.exchange);
       this.setData({
         accountIndex: Math.max(0, accIdx),
-        exchangeIndex: ['SH', 'SZ', 'HK', 'US'].indexOf(h.exchange) || 0,
+        typeIndex: typeIdx >= 0 ? typeIdx : 0,
+        exchangeIndex: exIdx >= 0 ? exIdx : 0,
         currentAccountType: acc.type || '',
         form: {
           account_id: h.account_id || '',
@@ -111,6 +127,8 @@ Page({
           buy_date: h.buy_date || '',
           note: h.note || '',
           strategy: h.strategy || '',
+          industry: h.industry || '',
+          industry_auto_refresh: h.industry_auto_refresh !== false,
           management_fee_rate: h.management_fee_rate != null ? String(h.management_fee_rate) : '',
           custodian_fee_rate: h.custodian_fee_rate != null ? String(h.custodian_fee_rate) : '',
           advisory_fee_rate: h.advisory_fee_rate != null ? String(h.advisory_fee_rate) : '',
@@ -153,7 +171,14 @@ Page({
             codeLookupHint: `找到 ${products.length} 个匹配，请选择：`,
           });
         } else {
-          this.setData({ codeLookupHint: '未匹配到产品，请手动输入名称' });
+          // 未匹配到产品时，按代码推断 product_type/exchange 兜底
+          const inferredType = inferProductType(code);
+          const inferredEx = inferExchange(code);
+          this.setData({
+            'form.product_type': inferredType || this.data.form.product_type,
+            'form.exchange': inferredEx || this.data.form.exchange,
+            codeLookupHint: inferredType ? `未匹配到产品，已按代码推断为${inferredType}` : '未匹配到产品，请手动输入名称',
+          });
         }
       } catch (err) {
         console.error('[onCodeInput] lookup error:', err);
@@ -231,20 +256,7 @@ Page({
 
   onTypeChange(e) {
     const idx = e.detail.value;
-    let key = 'stock';
-    let counter = 0;
-    for (const item of PRODUCT_TYPE_TREE) {
-      if (item.children) {
-        for (const child of item.children) {
-          if (counter === idx) { key = child.key; break; }
-          counter++;
-        }
-      } else {
-        if (counter === idx) { key = item.key; break; }
-        counter++;
-      }
-      if (key !== 'stock') break;
-    }
+    const key = this.data.typeKeys[idx] || 'stock';
     this.setData({ typeIndex: idx, 'form.product_type': key });
   },
 
@@ -272,6 +284,14 @@ Page({
 
   onStrategyInput(e) {
     this.setData({ 'form.strategy': e.detail.value });
+  },
+
+  onIndustryInput(e) {
+    this.setData({ 'form.industry': e.detail.value });
+  },
+
+  onAutoRefreshChange(e) {
+    this.setData({ 'form.industry_auto_refresh': e.detail.value });
   },
 
   onMgmtFeeInput(e) {
@@ -329,6 +349,10 @@ Page({
         note: f.note,
         // 策略/跟投计划标签
         strategy: f.strategy || '',
+        // 行业分类（用于多维度分析）
+        industry: f.industry || '',
+        // 是否参与「刷新行业」AI 推断任务
+        industry_auto_refresh: f.industry_auto_refresh !== false,
         // 单基金费率覆盖（优先级高于账户层级配置）
         management_fee_rate: parseFloat(f.management_fee_rate) || 0,
         custodian_fee_rate: parseFloat(f.custodian_fee_rate) || 0,

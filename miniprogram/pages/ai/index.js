@@ -6,6 +6,11 @@
 const api = require('../../utils/api');
 const { formatMoney, formatDate, getPriceColor } = require('../../utils/format');
 const { ANALYSIS_TYPES, LLM_PROVIDERS } = require('../../utils/constants');
+const { parseMarkdown } = require('../../utils/markdown');
+
+// 单次分析最久等待时间（毫秒）。超过即视为超时，提示用户稍后查看，
+// 并允许重新进入页面时自动加载最近一次报告（见 onShow 与 onAnalyzeTimeout）。
+const ANALYZE_TIMEOUT_MS = 55 * 1000;
 
 Page({
   data: {
@@ -15,6 +20,10 @@ Page({
     providerConfigured: false,
     configuredProviders: [],   // 已配置且启用的 provider 列表 [{key,name}]
     analysts: [],              // 选中的分析师 provider key 数组
+    // 选中态 map（{ providerKey: true }），供 WXML 用 analystSelected[item.key] 判断。
+    // 历史根因：WXML 表达式不支持函数调用，analysts.indexOf(item.key) 永远返回 undefined，
+    // 改用对象成员访问才能正确驱动 selected class / active 图标 / ✓ 勾选标记。
+    analystSelected: {},
     synthIndex: 0,             // 汇总模型 picker 索引
     synthNames: [],            // 汇总模型名称列表（随选中分析师动态更新）
     selectedType: 'portfolio_health',
@@ -30,14 +39,27 @@ Page({
       show: false,
       summary: '',
       keyFindings: [],
+      findingBlocks: [],     // 每条 key_finding 解析后的 markdown blocks
       riskLevel: '',
       content: '',
+      contentBlocks: [],     // report_content 解析后的 markdown blocks
+      subContentBlocks: [],  // 子报告解析后的 markdown blocks 数组（与 subReports 一一对应）
       date: '',
       multiMode: false,
       subReports: [],
     },
     showSubReports: false,
+    // 上一次分析超时但服务端可能仍在生成，重新进入页面时自动展示最新报告
+    hasPendingReport: false,
+    pendingHint: '',
     historyReports: [],
+    // 历史记录分页 + 折叠
+    historyExpanded: {},      // { [reportId]: true } 折叠态 map（默认全部折叠）
+    historyBlocks: {},        // { [reportId]: markdownBlocks } 展开时缓存的解析结果
+    historyPage: 0,           // 当前已加载页码（0 起）
+    historyPageSize: 10,      // 每页条数
+    historyHasMore: true,     // 是否还有更多
+    historyLoadingMore: false,
     qaQuestion: '',
     qaAnswer: '',
     canAsk: false,
@@ -48,6 +70,112 @@ Page({
     this.loadData();
     this.loadLLMConfig();
     this.loadHistory();
+    // 若上次分析超时（hasPendingReport，内存态），自动尝试加载最新报告
+    if (this.data.hasPendingReport) {
+      this.tryLoadLatestAfterTimeout();
+      return;
+    }
+    // 即便内存态丢失（用户切出后页面被回收），也检查本地 storage 中的 pending 标记，
+    // 让用户重新进来即可看到刚才的解析结果。
+    this._checkStoredPending();
+  },
+
+  onHide() {
+    // 离开页面时停止轮询，避免后台空跑
+    this._stopPollLatest();
+  },
+  onUnload() {
+    this._stopPollLatest();
+  },
+
+  /** 检查本地 storage 中是否有 pending 标记（跨页面生命周期） */
+  _checkStoredPending() {
+    try {
+      const pending = wx.getStorageSync('ai_pending_report');
+      if (!pending || !pending.startedAt) return;
+      // 超过 30 分钟视为已过期，不再尝试拉取
+      if (Date.now() - pending.startedAt > 30 * 60 * 1000) {
+        wx.removeStorageSync('ai_pending_report');
+        return;
+      }
+      this.setData({
+        hasPendingReport: true,
+        pendingHint: '上次分析仍在生成中，正在为您拉取最新结果…',
+      });
+      this.tryLoadLatestAfterTimeout();
+    } catch (e) {}
+  },
+
+  /**
+   * 超时后重新进入页面，自动尝试拉取最新一份报告并展示。
+   * 若最新报告时间在「分析开始时间」之后，则视为本次超时分析的结果。
+   * 同时启动轮询：每 8 秒拉一次，最多 5 次（覆盖 40 秒），让用户切回来也能看到。
+   */
+  async tryLoadLatestAfterTimeout() {
+    const startedAt = (function () {
+      try {
+        const p = wx.getStorageSync('ai_pending_report');
+        return (p && p.startedAt) || (Date.now() - 60 * 1000);
+      } catch (e) { return Date.now() - 60 * 1000; }
+    })();
+    const got = await this._fetchLatestAndFill(startedAt);
+    if (got) {
+      this._stopPollLatest();
+      return;
+    }
+    // 没拉到 → 启动轮询
+    this._startPollLatest(startedAt);
+  },
+
+  /** 拉取最新报告，若 created_at > startedAt 则填充并清除 pending 标记，返回 true */
+  async _fetchLatestAndFill(startedAt) {
+    try {
+      const reports = await api.getAnalysisReports();
+      if (!reports || reports.length === 0) return false;
+      // 跳过 failed:true 的失败占位记录（云函数异常时写入），找第一条真实报告
+      const candidate = reports.find(r => !r.failed && r.created_at);
+      if (!candidate) return false;
+      const created = new Date(candidate.created_at);
+      if (isNaN(created.getTime())) return false;
+      // 最新报告创建时间晚于「分析开始时间」即视为本次结果
+      if (created.getTime() >= startedAt) {
+        this.fillResultFromReport(candidate, { multiMode: false, subReports: [] });
+        this.setData({ hasPendingReport: false, pendingHint: '' });
+        try { wx.removeStorageSync('ai_pending_report'); } catch (e) {}
+        this.loadHistory();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn('[AI] _fetchLatestAndFill error:', e);
+      return false;
+    }
+  },
+
+  /** 启动轮询拉取最新报告（最多 12 次，每 8 秒，覆盖云函数 60s 上限 + DB 写入延迟） */
+  _startPollLatest(startedAt) {
+    this._stopPollLatest();
+    let count = 0;
+    const MAX = 12;
+    this._pollTimer = setInterval(async () => {
+      count++;
+      const got = await this._fetchLatestAndFill(startedAt);
+      if (got || count >= MAX) {
+        this._stopPollLatest();
+        if (!got && count >= MAX) {
+          this.setData({
+            pendingHint: '仍在生成中，请稍后下拉刷新或前往「历史分析记录」查看。',
+          });
+        }
+      }
+    }, 8000);
+  },
+
+  _stopPollLatest() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
   },
 
   async loadData() {
@@ -89,6 +217,7 @@ Page({
         analysts = [];
       }
       this.setData({ configuredProviders, providerConfigured, analysts });
+      this._syncAnalystSelected();
       this.updateSynthNames();
       this.updateCanAnalyze();
     } catch (err) {
@@ -96,29 +225,70 @@ Page({
     }
   },
 
-  async loadHistory() {
+  /** 由 analysts 数组派生 analystSelected map，供 WXML 模板用 obj[key] 判断选中态 */
+  _syncAnalystSelected() {
+    const map = {};
+    (this.data.analysts || []).forEach(k => { map[k] = true; });
+    this.setData({ analystSelected: map });
+  },
+
+  async loadHistory(reset) {
     try {
-      const reports = await api.getAnalysisReports();
-      this.setData({ historyReports: reports });
-      // 进入页面时若结果区为空，自动展示最近一份报告（含生成时间）
-      if (reports.length > 0 && !this.data.result.show) {
-        const latest = reports[0];
-        this.setData({
-          result: {
-            show: true,
-            summary: latest.summary || '',
-            keyFindings: latest.key_findings || [],
-            riskLevel: latest.risk_level || '',
-            content: latest.report_content || '',
-            date: formatDate(new Date(latest.created_at)),
-            multiMode: false,
-            subReports: [],
-          },
-        });
+      if (this.data.historyLoadingMore) return;
+      const isReset = reset !== false; // 默认 reset=true，仅传 false 时追加
+      const page = isReset ? 0 : this.data.historyPage;
+      const pageSize = this.data.historyPageSize;
+      this.setData({ historyLoadingMore: true });
+      const reports = await api.getAnalysisReports(page * pageSize, pageSize);
+      const merged = isReset ? reports : this.data.historyReports.concat(reports);
+      // 返回条数 < pageSize → 没有更多
+      const hasMore = reports.length >= pageSize;
+      const patch = {
+        historyReports: merged,
+        historyPage: page,
+        historyHasMore: hasMore,
+        historyLoadingMore: false,
+      };
+      if (isReset) {
+        // reset 时清空折叠态与缓存，避免旧 id 残留
+        patch.historyExpanded = {};
+        patch.historyBlocks = {};
       }
+      this.setData(patch);
     } catch (err) {
       console.error('[AI] loadHistory error:', err);
+      this.setData({ historyLoadingMore: false });
     }
+  },
+
+  /** 加载更多历史（分页） */
+  onLoadMoreHistory() {
+    if (!this.data.historyHasMore || this.data.historyLoadingMore) return;
+    const nextPage = this.data.historyPage + 1;
+    this.setData({ historyPage: nextPage });
+    this.loadHistory(false);
+  },
+
+  /** 切换某条历史报告的展开/折叠态（折叠式展示，避免跳转） */
+  onToggleHistoryItem(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    const expanded = Object.assign({}, this.data.historyExpanded);
+    const blocks = Object.assign({}, this.data.historyBlocks);
+    if (expanded[id]) {
+      // 收起
+      delete expanded[id];
+    } else {
+      // 展开：若未缓存 markdown blocks 则现解析一份
+      expanded[id] = true;
+      if (!blocks[id]) {
+        const report = this.data.historyReports.find(r => r._id === id);
+        if (report) {
+          blocks[id] = parseMarkdown(report.report_content || '');
+        }
+      }
+    }
+    this.setData({ historyExpanded: expanded, historyBlocks: blocks });
   },
 
   updateCanAnalyze() {
@@ -146,6 +316,7 @@ Page({
       analysts.push(key);
     }
     this.setData({ analysts });
+    this._syncAnalystSelected();
     this.updateSynthNames();
     this.updateCanAnalyze();
   },
@@ -184,30 +355,31 @@ Page({
       mask: true,
     });
 
+    // 用 Promise.race 与超时竞争：超过 ANALYZE_TIMEOUT_MS 即视为超时，
+    // 但云函数可能仍在生成报告（服务端会写库），标记为 hasPendingReport，
+    // 让用户稍后或重新进入页面时通过 tryLoadLatestAfterTimeout 自动看到结果。
+    const startedAt = Date.now();
+    let analyzePromise;
     try {
-      let res;
       if (multi) {
-        // 汇总模型 = 当前 picker 选中的
         const synthKey = this.data.analysts[this.data.synthIndex] || analysts[0];
-        res = await api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
+        analyzePromise = api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
       } else {
-        res = await api.analyzePortfolio(this.data.selectedType, analysts[0]);
+        analyzePromise = api.analyzePortfolio(this.data.selectedType, analysts[0]);
       }
+      const res = await Promise.race([
+        analyzePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('ANALYZE_TIMEOUT')), ANALYZE_TIMEOUT_MS)
+        ),
+      ]);
 
       if (res && res.success) {
         const report = res.report || {};
-        this.setData({
-          result: {
-            show: true,
-            summary: report.summary || '',
-            keyFindings: report.key_findings || [],
-            riskLevel: report.risk_level || '',
-            content: report.report_content || '',
-            date: formatDate(new Date()),
-            multiMode: !!res.multiMode,
-            subReports: res.subReports || [],
-          },
-        });
+        this.fillResultFromReport(report, { multiMode: !!res.multiMode, subReports: res.subReports || [] });
+        this.setData({ hasPendingReport: false, pendingHint: '' });
+        try { wx.removeStorageSync('ai_pending_report'); } catch (e) {}
+        this._stopPollLatest();
         wx.hideLoading();
         this.loadHistory();
       } else {
@@ -216,11 +388,69 @@ Page({
       }
     } catch (err) {
       wx.hideLoading();
-      wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
-      console.error('[AI] analysis error:', err);
+      const isTimeout = (err && err.message === 'ANALYZE_TIMEOUT');
+      // -404010: 云函数结果在微信轮询系统中过期（通常因云函数运行接近 60s 上限）。
+      // 此时云函数可能仍在执行并最终落库，按超时处理：标记 pending 并启动轮询。
+      const isResultExpired = err && (
+        err.errCode === -404010 ||
+        (err.errMsg && err.errMsg.indexOf('-404010') >= 0) ||
+        (err.message && err.message.indexOf('result expired') >= 0)
+      );
+      if (isTimeout || isResultExpired) {
+        // 客户端超时/结果过期，但服务端可能仍在生成。
+        // 将 startedAt 写入本地 storage，让用户重新进入页面（即便页面被回收）也能自动看到最新报告；
+        // 同时启动轮询，用户当前页等待 40 秒内也能看到结果。
+        try {
+          wx.setStorageSync('ai_pending_report', { startedAt, type: this.data.selectedType });
+        } catch (e) {}
+        this.setData({
+          hasPendingReport: true,
+          pendingHint: isResultExpired
+            ? '云函数结果已过期，但服务端可能仍在生成。正在为您轮询最新结果…'
+            : '分析耗时较长，服务端仍在生成中。您可以切出本页稍后回来查看，本页也会每 8 秒自动刷新。',
+        });
+        wx.showModal({
+          title: isResultExpired ? '结果拉取超时' : '分析超时',
+          content: 'AI 正在生成报告，但耗时较长。云函数会继续完成并保存。您可以切出本页做其他事，稍后回来将自动展示最新结果；也可在「历史分析记录」中查看。',
+          showCancel: false,
+          confirmText: '我知道了',
+        });
+        this.loadHistory();
+        // 启动轮询：用户留在本页时也能看到结果
+        this._startPollLatest(startedAt);
+      } else {
+        wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
+        console.error('[AI] analysis error:', err);
+      }
     }
 
     this.setData({ analyzing: false });
+  },
+
+  /**
+   * 把后端 report 填到 result 并解析 markdown 为结构化 blocks（用于原生 view 渲染表格/列表/标题）
+   */
+  fillResultFromReport(report, extra) {
+    const keyFindings = report.key_findings || [];
+    const findingBlocks = keyFindings.map(f => parseMarkdown(String(f)));
+    const contentBlocks = parseMarkdown(report.report_content || '');
+    const subReports = (extra && extra.subReports) || [];
+    const subContentBlocks = subReports.map(s => parseMarkdown(String(s.content || '')));
+    this.setData({
+      result: {
+        show: true,
+        summary: report.summary || '',
+        keyFindings,
+        findingBlocks,
+        riskLevel: report.risk_level || '',
+        content: report.report_content || '',
+        contentBlocks,
+        subContentBlocks,
+        date: formatDate(new Date()),
+        multiMode: (extra && extra.multiMode) || false,
+        subReports,
+      },
+    });
   },
 
   onToggleSubReports() {

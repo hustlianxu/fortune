@@ -38,7 +38,8 @@ Page({
     //    若持仓已被删除（重建去重 / 手动删除），则不再继续，避免把已删除记录重新渲染到详情页
     await this.loadHolding();
     if (!this.data.holding._id) return;
-    // 2. 加载该持仓的全部交易（依赖 account_id / product_code）
+    // 2. 加载该持仓的全部交易（依赖 account_id / product_code，原来放在 loadHolding 之前
+    //    会导致首次进入时 holding 还是 {}，交易列表加载不出来）
     await this.loadAllTransactions();
     // 3. 用交易回放校验持仓数量/成本，不一致则写回 DB（等价于自动「重建」）
     await this.validateHoldingByReplay();
@@ -147,12 +148,14 @@ Page({
     const currentPrice = Number(holding.current_price) || 0;
     const costValue = Number(holding.cost_value) || (shares * Number(holding.cost_price || 0));
     const marketValue = shares * currentPrice;
-    const pnl = marketValue - costValue;
+    const pnl = marketValue - costValue;                                  // 浮动盈亏
     const pnlPercent = costValue > 0 ? (pnl / costValue) * 100 : 0;
-    const realized = Number(holding.realized_pnl) || 0;
-    const dividend = Number(holding.total_dividend) || 0;
-    const totalFee = Number(holding.total_fee) || 0;
-    const totalPnl = Number((pnl + realized + dividend).toFixed(2));
+    const realized = Number(holding.realized_pnl) || 0;                  // 累计已实现盈亏
+    const dividend = Number(holding.total_dividend) || 0;                // 累计分红
+    const totalFee = Number(holding.total_fee) || 0;                     // 累计手续费
+    // 总收益（同花顺口径） = 浮动 + 已实现 + 分红 - 手续费
+    const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
+    // 总收益率（按累计投入成本算）
     const investedCost = costValue + Math.max(0, realized);
     const totalPnlPercent = investedCost > 0 ? (totalPnl / investedCost) * 100 : 0;
     const recomputed = Object.assign({}, holding, {
@@ -168,6 +171,85 @@ Page({
     });
     this.setData({ priceColor: getPriceColor(totalPnl) });
     return recomputed;
+  },
+
+  /**
+   * 手动重建该持仓（用户在详情页点「重建」按钮触发）
+   * 调 rebuild_holdings 云函数，按 (account_id, product_code) 全量回放并去重重复持仓
+   */
+  async onRebuild() {
+    const h = this.data.holding;
+    if (!h.account_id || !h.product_code) {
+      wx.showToast({ title: '缺少账户或代码', icon: 'none' });
+      return;
+    }
+    const currentId = this.data.holdingId;
+    wx.showLoading({ title: '重建中...', mask: true });
+    let res;
+    try {
+      const r = await wx.cloud.callFunction({
+        name: 'rebuild_holdings',
+        data: { account_id: h.account_id, product_code: h.product_code },
+      });
+      res = (r && r.result) || {};
+    } catch (err) {
+      console.error('[Holding Detail] rebuild error:', err);
+      wx.hideLoading();
+      const msg = err && err.errMsg && err.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
+        ? '请先部署 rebuild_holdings 云函数'
+        : '重建失败';
+      wx.showToast({ title: msg, icon: 'none' });
+      return;
+    }
+    wx.hideLoading();
+    if (!res.success) {
+      wx.showToast({ title: res.message || '重建失败', icon: 'none' });
+      return;
+    }
+
+    // 重建可能：① 当前持仓被保留并更新；② 当前持仓作为重复项被删除，存活的是另一条 _id
+    // 通过 (account_id, product_code) 重新查询存活的持仓，避免把已删除的记录重新加载到详情页
+    // 优先使用云函数返回的 survivors（避免客户端查询的最终一致性问题）
+    let survivingId = '';
+    const survivor = (res.survivors || []).find(
+      s => s.account_id === h.account_id && s.product_code === h.product_code
+    );
+    if (survivor) {
+      survivingId = survivor._id;
+    } else {
+      try {
+        const q = await db.collection('holdings')
+          .where({ account_id: h.account_id, product_code: h.product_code })
+          .limit(1).get();
+        survivingId = (q.data && q.data[0] && q.data[0]._id) || '';
+      } catch (e) {
+        console.warn('[Holding Detail] query surviving holding failed:', e);
+      }
+    }
+
+    wx.showModal({
+      title: '重建完成',
+      content: res.message || '已完成',
+      showCancel: false,
+      success: () => {
+        if (!survivingId) {
+          // 该 (account_id, product_code) 下已无持仓（例如全部清仓后被清理）
+          wx.showToast({ title: '该持仓已不存在', icon: 'none' });
+          setTimeout(() => wx.navigateBack(), 800);
+          return;
+        }
+        if (survivingId === currentId) {
+          // 当前持仓就是存活的那条，原地刷新即可
+          this.loadAll();
+        } else {
+          // 当前持仓已被去重删除，存活的是另一条 → 用 redirectTo 替换页面，
+          // 避免返回时又回到已删除的详情页（不重新加载已删除记录）
+          wx.redirectTo({
+            url: `/pages/holding/detail?id=${survivingId}`,
+          });
+        }
+      },
+    });
   },
 
   /** 加载该持仓的全部交易（按日期正序，用于图表和列表） */
@@ -429,7 +511,7 @@ Page({
       const curPrice = Number(holding.current_price) || 0;
       const marketValue = Number((shares * curPrice).toFixed(2));
       const pnl = Number((marketValue - costValue).toFixed(2));
-      const totalPnl = Number((pnl + realizedPnl + totalDividend).toFixed(2));
+      const totalPnl = Number((pnl + realizedPnl + totalDividend - totalFee).toFixed(2));
       const isCleared = shares <= 0;
 
       await db.collection('holdings').doc(holding._id).update({
@@ -472,77 +554,6 @@ Page({
   onEdit() {
     wx.navigateTo({
       url: `/pages/holding/edit?id=${this.data.holding._id}`,
-    });
-  },
-
-  async onRebuild() {
-    const h = this.data.holding;
-    if (!h.account_id || !h.product_code) {
-      wx.showToast({ title: '缺少账户或代码', icon: 'none' });
-      return;
-    }
-    const currentId = this.data.holdingId;
-    wx.showLoading({ title: '重建中...', mask: true });
-    let res;
-    try {
-      const r = await wx.cloud.callFunction({
-        name: 'rebuild_holdings',
-        data: { account_id: h.account_id, product_code: h.product_code },
-      });
-      res = (r && r.result) || {};
-    } catch (err) {
-      console.error('[Holding Detail] rebuild error:', err);
-      wx.hideLoading();
-      const msg = err && err.errMsg && err.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
-        ? '请先部署 rebuild_holdings 云函数'
-        : '重建失败';
-      wx.showToast({ title: msg, icon: 'none' });
-      return;
-    }
-    wx.hideLoading();
-    if (!res.success) {
-      wx.showToast({ title: res.message || '重建失败', icon: 'none' });
-      return;
-    }
-
-    // 重建可能：① 当前持仓被保留并更新；② 当前持仓作为重复项被删除，存活的是另一条 _id
-    // 通过 (account_id, product_code) 重新查询存活的持仓，避免把已删除的记录重新加载到详情页
-    let survivingId = '';
-    const survivor = (res.survivors || []).find(
-      s => s.account_id === h.account_id && s.product_code === h.product_code
-    );
-    if (survivor) {
-      survivingId = survivor._id;
-    } else {
-      try {
-        const q = await db.collection('holdings')
-          .where({ account_id: h.account_id, product_code: h.product_code })
-          .limit(1).get();
-        survivingId = (q.data && q.data[0] && q.data[0]._id) || '';
-      } catch (e) {
-        console.warn('[Holding Detail] query surviving holding failed:', e);
-      }
-    }
-
-    wx.showModal({
-      title: '重建完成',
-      content: res.message || '已完成',
-      showCancel: false,
-      success: () => {
-        if (!survivingId) {
-          wx.showToast({ title: '该持仓已不存在', icon: 'none' });
-          setTimeout(() => wx.navigateBack(), 800);
-          return;
-        }
-        if (survivingId === currentId) {
-          this.loadAll();
-        } else {
-          // 当前持仓已被去重删除，存活的是另一条 → 用 redirectTo 替换页面
-          wx.redirectTo({
-            url: `/pages/holding/detail?id=${survivingId}`,
-          });
-        }
-      },
     });
   },
 

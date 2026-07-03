@@ -113,11 +113,20 @@
 
   <!-- 策略/跟投计划标签 -->
   <view class="card">
-    <view class="card-title">跟投策略</view>
-    <text class="fee-desc">标记此持仓属于哪个跟投计划，同一策略的持仓可聚合查看</text>
+    <view class="card-title">跟投策略 & 行业</view>
+    <text class="fee-desc">标记此持仓属于哪个跟投计划/行业，可在多维度分析中聚合查看</text>
     <view class="form-group">
       <text class="form-label">策略/计划名称</text>
       <input class="input-field" placeholder="如：长赢150份、S定投、螺丝钉定投…（留空不归类）" value="{{form.strategy}}" bindinput="onStrategyInput" />
+    </view>
+    <view class="form-group">
+      <text class="form-label">行业分类</text>
+      <input class="input-field" placeholder="如：银行、半导体、新能源、消费…（留空为未分类）" value="{{form.industry}}" bindinput="onIndustryInput" />
+      <view class="switch-row">
+        <text class="switch-label">参与「刷新行业」任务</text>
+        <switch checked="{{form.industry_auto_refresh}}" bindchange="onAutoRefreshChange" color="#4a6cf7" />
+      </view>
+      <text class="form-hint">开启后，在持仓列表「刷新行业」时由 AI 自动推断行业（不覆盖手填值）；关闭后该持仓不参与自动推断。</text>
     </view>
   </view>
 

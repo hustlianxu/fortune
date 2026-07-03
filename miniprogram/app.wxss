@@ -59,6 +59,8 @@ page {
 .tag-lof { background: var(--primary-soft); color: var(--primary-color); }
 .tag-fund { background: var(--primary-soft); color: var(--primary-color); }
 .tag-money { background: var(--primary-soft); color: var(--primary-color); }
+/* 行业标签：用中性灰区分于类型标签 */
+.tag-industry { background: var(--txn-transfer-soft); color: var(--text-secondary); }
 
 /* 按钮 */
 .btn-primary {

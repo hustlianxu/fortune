@@ -233,13 +233,76 @@
   font-size: 22rpx;
   color: var(--text-tertiary);
 }
-.trade-remove {
+.trade-actions {
   position: absolute;
   top: 20rpx;
   right: 0;
+  display: flex;
+  align-items: center;
+}
+.trade-edit {
+  font-size: 28rpx;
+  color: var(--primary-color);
+  padding: 8rpx 12rpx;
+}
+.trade-remove {
   font-size: 28rpx;
   color: var(--text-tertiary);
   padding: 8rpx 16rpx;
+}
+
+/* 编辑弹层 */
+.edit-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+}
+.edit-panel {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--bg-card);
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 32rpx;
+  z-index: 1001;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+}
+.edit-title { font-size: 32rpx; font-weight: 600; color: var(--text-primary); }
+.edit-close { font-size: 36rpx; color: var(--text-tertiary); padding: 4rpx 16rpx; }
+.edit-body { padding-bottom: 16rpx; }
+.edit-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+}
+.edit-label { width: 140rpx; font-size: 26rpx; color: var(--text-secondary); flex-shrink: 0; }
+.edit-input {
+  flex: 1; height: 72rpx; padding: 0 16rpx;
+  background: var(--bg-input); border-radius: 8rpx;
+  font-size: 28rpx; color: var(--text-primary);
+}
+.edit-picker {
+  display: flex; justify-content: space-between; align-items: center;
+  flex: 1; height: 72rpx; padding: 0 16rpx;
+  background: var(--bg-input); border-radius: 8rpx;
+  font-size: 28rpx;
+}
+.edit-footer {
+  display: flex; gap: 16rpx; margin-top: 24rpx;
+}
+.edit-footer .btn-primary, .edit-footer .btn-secondary { flex: 1; margin: 0; }
+.btn-secondary {
+  height: 80rpx; line-height: 80rpx; text-align: center;
+  border-radius: 12rpx; font-size: 28rpx; color: var(--text-secondary);
+  background: var(--bg-input);
 }
 
 .confirm-btn {

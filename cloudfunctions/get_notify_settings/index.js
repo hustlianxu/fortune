@@ -3,7 +3,7 @@
  * 读取当前用户的推送通知设置。
  *
  * 返回：设置对象（无记录或失败时返回空对象 {}），字段：
- *   morningNews, eveningNews, priceAlert, alertThreshold
+ *   morningNews, eveningNews, priceAlert, alertThreshold, tmplIds
  */
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -31,6 +31,7 @@ exports.main = async () => {
       eveningNews: rec.eveningNews !== false,
       priceAlert: !!rec.priceAlert,
       alertThreshold: rec.alertThreshold || '3',
+      tmplIds: rec.tmplIds || { morning: '', evening: '', price_alert: '' },
     };
   } catch (err) {
     console.error('[get_notify_settings] error:', err);

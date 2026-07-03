@@ -102,6 +102,42 @@
     </view>
   </view>
 
+  <!-- 打新战绩 -->
+  <view class="card ipo-card" wx:if="{{ipoStats.count > 0}}" bindtap="onGoIpo">
+    <view class="card-header">
+      <text class="section-title">打新战绩</text>
+      <text class="ipo-count">中签 {{ipoStats.count}} 次 ›</text>
+    </view>
+    <view class="ipo-summary">
+      <view class="ipo-stat">
+        <text class="ipo-stat-label">累计中签投入</text>
+        <text class="ipo-stat-value">¥{{fmt.formatMoney(ipoStats.totalInvest)}}</text>
+      </view>
+      <view class="ipo-stat">
+        <text class="ipo-stat-label">当前盈亏</text>
+        <text class="ipo-stat-value {{ipoPnlColor}}">{{fmt.pnlSign(ipoStats.currentPnl)}}¥{{fmt.formatMoney(ipoStats.currentPnl)}}</text>
+      </view>
+      <view class="ipo-stat">
+        <text class="ipo-stat-label">收益率</text>
+        <text class="ipo-stat-value {{ipoPnlColor}}">{{fmt.pnlSign(ipoStats.pnlPercent)}}{{ipoStats.pnlPercent}}%</text>
+      </view>
+    </view>
+    <view class="ipo-list" wx:if="{{ipoStats.list.length > 0}}">
+      <view class="ipo-item" wx:for="{{ipoStats.list}}" wx:key="product_code">
+        <view class="ipo-item-top">
+          <text class="ipo-item-name">{{item.product_name}}</text>
+          <text class="ipo-item-pnl {{fmt.pnlClass(item.pnl)}}">{{fmt.pnlSign(item.pnl)}}¥{{fmt.formatMoney(item.pnl)}}</text>
+        </view>
+        <view class="ipo-item-bottom">
+          <text>{{item.product_code}}</text>
+          <text>中签 {{item.ipo_count}} 次 / {{item.ipo_shares}} 股</text>
+          <text>发行价: ¥{{fmt.formatMoney(item.ipo_price)}}</text>
+          <text>现价: ¥{{fmt.formatMoney(item.current_price)}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
   <!-- 导入 & 录入快捷入口 -->
   <view class="card quick-actions" wx:if="{{!summary.accounts || summary.accounts.length === 0}}">
     <view class="import-entry" bindtap="onGoToImport">
