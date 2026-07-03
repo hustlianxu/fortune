@@ -32,9 +32,19 @@ App({
       console.warn('[UnhandledRejection]', reason);
     });
 
-    // 获取系统信息
-    const systemInfo = wx.getSystemInfoSync();
-    this.globalData.systemInfo = systemInfo;
+    // 获取系统信息（从 3.7.0+ 起推荐 getWindowInfo + getDeviceInfo 替代 getSystemInfo）
+    const windowInfo = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const deviceInfo = wx.getDeviceInfo ? wx.getDeviceInfo() : {};
+    this.globalData.systemInfo = {
+      ...windowInfo,
+      ...deviceInfo,
+      // 兼容旧版：wx.getSystemInfoSync 直接返回全部
+      SDKVersion: deviceInfo.SDKVersion || windowInfo.SDKVersion || '',
+      brand: deviceInfo.brand || '',
+      model: deviceInfo.model || '',
+      platform: deviceInfo.platform || '',
+    };
+    this.globalData.statusBarHeight = windowInfo.statusBarHeight || 20;
     this.globalData.statusBarHeight = systemInfo.statusBarHeight;
 
     // 检查是否有缓存的行情数据

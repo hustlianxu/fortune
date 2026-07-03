@@ -15,7 +15,7 @@
   flex-direction: column;
   align-items: center;
   padding: 16rpx 8rpx;
-  background: var(--bg-secondary, #f7f7fa);
+  background: var(--bg-input);
   border-radius: 12rpx;
 }
 .summary-label {

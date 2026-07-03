@@ -10,6 +10,21 @@
   margin-bottom: 4rpx;
 }
 
+.report-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 16rpx 0 0;
+}
+.btn-download {
+  padding: 8rpx 20rpx;
+  background: var(--bg-input);
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  color: var(--primary-color);
+  border: 2rpx solid var(--border-color);
+}
+.btn-download:active { opacity: 0.6; }
+
 .meta-label { color: var(--text-secondary); font-size: 26rpx; }
 .risk-badge-row { margin-bottom: 20rpx; display: flex; align-items: center; gap: 8rpx; }
 

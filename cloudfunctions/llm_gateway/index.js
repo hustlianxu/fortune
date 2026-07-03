@@ -510,7 +510,39 @@ exports.main = async (event) => {
       return { success: false, message: '暂无持仓数据，请先添加持仓' };
     }
 
-    // 3. 判断模式：多 AI 协作 or 单 AI
+    // 3. return_prompt_only 模式：返回构建好的 prompt + API key，让前端直接调用 LLM（绕过 60s 限制）
+    //    适用于单模型分析场景。多模型分析仍走云函数内部。
+    if (event.return_prompt_only && !isMultiMode) {
+      const providerConfig = userConfig.providers[provider];
+      if (!providerConfig || !providerConfig.enabled || !providerConfig.api_key) {
+        return { success: false, message: `${provider} 未启用或未配置 API Key` };
+      }
+      const apiKey = decrypt(providerConfig.api_key);
+      if (!apiKey) {
+        return { success: false, message: 'API Key 解密失败' };
+      }
+      const prCfg = PROVIDERS[provider] || {};
+      const baseURL = providerConfig.baseURL || prCfg.baseURL || '';
+      const model = providerConfig.model || prCfg.defaultModel || '';
+      let prompt;
+      if (type === 'qa') {
+        prompt = buildQAPrompt(holdingsSummary, question || '');
+      } else {
+        prompt = buildAnalysisPrompt(type, holdingsSummary);
+      }
+      return {
+        success: true,
+        return_prompt_only: true,
+        prompt,
+        apiKey,
+        baseURL,
+        model,
+        provider,
+        type,
+      };
+    }
+
+    // 4. 判断模式：多 AI 协作 or 单 AI
     const isMultiMode = Array.isArray(analysts) && analysts.filter(Boolean).length > 0;
 
     if (isMultiMode) {

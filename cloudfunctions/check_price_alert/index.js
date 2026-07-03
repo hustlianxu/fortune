@@ -19,6 +19,11 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
 const MAX_BATCH = 1000; // 单次 get 上限
+
+// 默认模板 ID（开发者在小程序后台申请后填入，当用户未配置时使用）
+// 请替换为你在微信公众平台「订阅消息」模块申请到的实际模板 ID
+const DEFAULT_TMPL_ID = '';
+
 const PLACEHOLDER_HINT = 'YOUR_';
 
 function pad(n) {
@@ -75,16 +80,19 @@ exports.main = async () => {
       const s = settingsMap[oid];
       if (!s || !s.priceAlert) continue; // 未开启涨跌提醒，跳过
 
-      // 模板 ID 解析：优先用户配置 tmplIds.price_alert，缺失则跳过
+      // 模板 ID 解析：优先用户配置 tmplIds.price_alert，未配置则使用默认模板
       const userTmplIds = s.tmplIds || {};
-      const templateId = (userTmplIds.price_alert || '').trim();
+      let templateId = (userTmplIds.price_alert || '').trim();
       if (!templateId || templateId.indexOf(PLACEHOLDER_HINT) === 0) {
+        templateId = DEFAULT_TMPL_ID;
+      }
+      if (!templateId) {
         // 一个用户只标记一次缺失
-        if (!errors.some(e => e.openid === oid && e.error.indexOf('未配置订阅消息模板') === 0)) {
+        if (!errors.some(e => e.openid === oid && e.error.indexOf('未配置订阅消息') === 0)) {
           skippedNoTmpl++;
           errors.push({
             openid: oid,
-            error: '未配置订阅消息模板 ID（请在「我-推送设置」中填入）',
+            error: '未配置订阅消息模板 ID（开发者需在 check_price_alert/index.js 设置 DEFAULT_TMPL_ID）',
           });
         }
         continue;

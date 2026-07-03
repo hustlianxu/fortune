@@ -66,20 +66,18 @@
     </view>
   </view>
 
-  <!-- 分析类型 -->
-  <view class="card">
-    <view class="section-title">分析类型</view>
-    <view class="analysis-types">
+  <!-- ═══════ 分析类型 Tab ═══════ -->
+  <view class="card analysis-tab-card">
+    <view class="analysis-tabs">
       <view
-        class="analysis-type-item {{selectedType === item.key ? 'selected' : ''}}"
+        class="analysis-tab {{selectedType === item.key ? 'active' : ''}}"
         wx:for="{{analysisTypes}}"
         wx:key="key"
-        bindtap="onTypeSelect"
+        bindtap="onTabSelect"
         data-key="{{item.key}}"
       >
-        <text class="type-icon">{{item.icon}}</text>
-        <text class="type-name">{{item.name}}</text>
-        <text class="type-desc">{{item.description}}</text>
+        <text class="tab-icon">{{item.icon}}</text>
+        <text class="tab-name">{{item.name}}</text>
       </view>
     </view>
   </view>
@@ -87,10 +85,11 @@
   <!-- 开始分析按钮 -->
   <view class="card">
     <button class="btn-primary" bindtap="onStartAnalysis" disabled="{{!canAnalyze}}">
-      {{analyzing ? '分析中...' : '开始分析'}}
+      {{analyzing ? '分析中...' : '开始分析：' + currentTypeName}}
     </button>
     <text class="btn-hint" wx:if="{{!providerConfigured}}">请先配置 API Key</text>
     <text class="btn-hint" wx:elif="{{!summary.holdings || summary.holdings.length === 0}}">请先录入持仓数据</text>
+    <text class="progress-hint" wx:elif="{{analyzing}}">{{analyzeProgress}}</text>
   </view>
 
   <!-- 分析超时提示 -->
@@ -105,7 +104,10 @@
   <view class="card" wx:if="{{result.show}}">
     <view class="result-header">
       <text class="result-title">{{result.multiMode ? '综合分析报告' : '分析报告'}}</text>
-      <text class="result-date">{{result.date}}</text>
+      <view class="result-actions">
+        <text class="result-date">{{result.date}}</text>
+        <text class="btn-download" bindtap="onDownloadCurrentReport">📥 下载</text>
+      </view>
     </view>
     <view class="result-risk" wx:if="{{result.riskLevel}}">
       <text>风险等级: </text>
@@ -239,19 +241,18 @@
     </view>
   </view>
 
-  <!-- 历史报告（分页 + 折叠，按 created_at 倒序） -->
-  <view class="card" wx:if="{{historyReports && historyReports.length > 0}}">
-    <view class="section-title">历史分析记录</view>
+  <!-- ═══════ 对应 Tab 的历史研报 ═══════ -->
+  <view class="card" wx:if="{{tabReports && tabReports.length > 0}}">
+    <view class="section-title">📋 {{currentTypeName}}研报（{{tabReports.length}} 份）</view>
     <view
-      wx:for="{{historyReports}}"
+      wx:for="{{tabReports}}"
       wx:key="_id"
       class="history-card {{historyExpanded[item._id] ? 'expanded' : ''}}"
     >
       <view class="history-head" bindtap="onToggleHistoryItem" data-id="{{item._id}}">
         <view class="history-head-left">
           <text class="history-type">{{c.analysisTypeName(item.type)}}</text>
-          <text class="history-model">{{item.provider || 'unknown'}}</text>
-          <text class="history-partial" wx:if="{{item.partial}}">部分</text>
+          <text class="history-model">{{item.provider || 'unknown'}}{{item.partial ? ' ⚠️部分' : ''}}</text>
         </view>
         <view class="history-head-right">
           <text class="history-date">{{fmt.formatDateTime(item.created_at)}}</text>
@@ -284,7 +285,7 @@
                 </view>
               </view>
             </view>
-            <view wx:elif="{{blk.type === 'table'}}" class="md-tablewrap">
+            <view wx:elif="{{blk.type === 'table'}}" class="md-table-wrap">
               <view class="md-table">
                 <view class="md-table-row md-table-head">
                   <view wx:for="{{blk.headers}}" wx:for-item="h" wx:key="hhIdx" wx:for-index="hhIdx" class="md-table-cell md-align-{{blk.aligns[hhIdx] || 'left'}}">
@@ -308,13 +309,25 @@
             <view wx:elif="{{blk.type === 'hr'}}" class="md-hr"></view>
           </block>
         </block>
+        <view class="history-footer-actions">
+          <text class="btn-download-sm" bindtap="onDownloadHistoryReport" data-id="{{item._id}}">📥 下载研报</text>
+        </view>
       </view>
     </view>
-    <view class="history-load-more" wx:if="{{historyHasMore}}" bindtap="onLoadMoreHistory">
-      <text>{{historyLoadingMore ? '加载中...' : '加载更多'}}</text>
+    <view class="history-load-more" wx:if="{{tabHasMore}}" bindtap="onLoadMoreTabReports">
+      <text>{{tabLoadingMore ? '加载中...' : '加载更多'}}</text>
     </view>
-    <view class="history-no-more" wx:if="{{!historyHasMore && historyReports.length > 0}}">
+    <view class="history-no-more" wx:if="{{!tabHasMore && tabReports.length > 0}}">
       <text>没有更多了</text>
+    </view>
+  </view>
+
+  <!-- 无研报提示 -->
+  <view class="card empty-tab" wx:if="{{!loading && tabReports && tabReports.length === 0}}">
+    <view class="empty-state">
+      <text class="empty-icon">{{currentTypeIcon}}</text>
+      <text>暂无「{{currentTypeName}}」研报</text>
+      <text class="empty-hint">点击上方「{{'开始分析：' + currentTypeName}}」按钮生成第一份研报</text>
     </view>
   </view>
 

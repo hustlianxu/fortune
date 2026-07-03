@@ -39,8 +39,8 @@
   <view class="card">
     <view class="section-title">订阅消息模板 ID</view>
     <view class="section-desc">
-      请先在微信公众平台「订阅消息」后台申请模板，将申请到的模板 ID 填入对应项；
-      未填写的项即使开关已开启，也不会推送。
+      若已申请自定义模板 ID，请填入对应项（优先级最高）；
+      留空则自动使用开发者预设的默认模板（无需用户配置）。
     </view>
 
     <view class="form-group">
@@ -77,6 +77,6 @@
   </view>
 
   <view class="card notice">
-    <text class="notice-text">提示：推送功能依赖微信订阅消息。保存后需在弹窗中点击「允许」以授权推送。已开启项未填模板 ID 时不会推送。</text>
+    <text class="notice-text">提示：推送功能依赖微信订阅消息。保存后若弹窗授权请点击「允许」。已填写自定模板 ID 的项使用自定义模板，留空的项使用系统预设默认模板。</text>
   </view>
 </view>

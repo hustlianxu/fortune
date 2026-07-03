@@ -41,21 +41,7 @@ function parseRssItems(text) {
 }
 
 const NEWS_SOURCES = [
-  // 1) 新浪财经 RSS - 直连官方源，比 rsshub 稳定
-  {
-    name: '新浪财经',
-    url: 'https://feed.mix.sina.com.cn/api/relay/finance/rss.xml',
-    parse: function (text) {
-      const items = parseRssItems(text);
-      return items.map(it => ({
-        title: it.title,
-        url: it.link,
-        summary: it.description.replace(/<[^>]+>/g, '').slice(0, 200),
-        pubDate: it.pubDate,
-      }));
-    },
-  },
-  // 2) 东方财富 RSS - 官方直连
+  // 1) 东方财富 RSS - 稳定性较高
   {
     name: '东方财富',
     url: 'https://np-cnbond.eastmoney.com/rss/News.aspx?type=2',
@@ -69,10 +55,41 @@ const NEWS_SOURCES = [
       }));
     },
   },
-  // 3) RSSHub fallback（公共实例可能不稳定）
+  // 2) 新浪财经 RSS
   {
-    name: '36氪快讯',
-    url: 'https://rsshub.app/36kr/motif',
+    name: '新浪财经',
+    url: 'https://feed.mix.sina.com.cn/api/relay/finance/rss.xml',
+    parse: function (text) {
+      const items = parseRssItems(text);
+      return items.map(it => ({
+        title: it.title,
+        url: it.link,
+        summary: it.description.replace(/<[^>]+>/g, '').slice(0, 200),
+        pubDate: it.pubDate,
+      }));
+    },
+  },
+  // 3) 雪球热门 - 财经资讯接口
+  {
+    name: '雪球',
+    url: 'https://xueqiu.com/statuses/original/timeline.json?source=all',
+    parse: function (text) {
+      try {
+        const json = JSON.parse(text);
+        const items = json.list || [];
+        return items.slice(0, 30).map(it => ({
+          title: it.title || it.text || '',
+          url: `https://xueqiu.com/${it.user_id || ''}/${it.id || ''}`,
+          summary: (it.text || '').replace(/<[^>]+>/g, '').slice(0, 200),
+          pubDate: it.created_at ? new Date(it.created_at).toUTCString() : '',
+        }));
+      } catch (e) { return []; }
+    },
+  },
+  // 4) RSSHub fallback（公共实例可能不稳定）
+  {
+    name: '财经快讯',
+    url: 'https://rsshub.app/finance/zhitongcaijing/express',
     parse: function (text) {
       const items = parseRssItems(text);
       return items.map(it => ({
@@ -114,23 +131,21 @@ function calcImportance(title) {
 
 exports.main = async (event) => {
   try {
-    const allNews = [];
-    const sourceErrors = [];
+    const allNewsResults = [];
 
-    // 串行抓取各源（避免并发被限流，单源失败立刻切到下一个）
-    for (const source of NEWS_SOURCES) {
+    // 并行抓取各源（单个超时不超过10s，总等待取决于最慢的源）
+    const sourcePromises = NEWS_SOURCES.map(async (source) => {
       try {
         const text = await http.getText(source.url, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          timeout: 12000,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+          timeout: 10000,
         });
         const items = source.parse(text);
         if (!items || items.length === 0) {
-          sourceErrors.push({ source: source.name, error: '抓取到 0 条' });
-          continue;
+          return { source: source.name, count: 0, error: '抓取到 0 条' };
         }
         items.forEach(item => {
-          allNews.push({
+          allNewsResults.push({
             title: item.title || '',
             summary: item.summary || '',
             source: source.name,
@@ -140,17 +155,23 @@ exports.main = async (event) => {
             importance: calcImportance(item.title),
           });
         });
+        return { source: source.name, count: items.length };
       } catch (err) {
         console.error(`[fetchNews] ${source.name} error:`, err && err.message);
-        sourceErrors.push({ source: source.name, error: err && err.message });
+        return { source: source.name, count: 0, error: err && err.message };
       }
-    }
+    });
 
-    // 全部来源都失败 → 返回 false，前端可显示明确错误
-    if (allNews.length === 0) {
+    const sourceResults = await Promise.allSettled(sourcePromises);
+    const sourceErrors = sourceResults
+      .filter(r => r.status === 'fulfilled' && r.value.error)
+      .map(r => `${r.value.source}(${r.value.error})`);
+
+    // 全部来源都失败 → 返回 false
+    if (allNewsResults.length === 0) {
       return {
         success: false,
-        message: `所有资讯源抓取失败：${sourceErrors.map(e => `${e.source}(${e.error})`).join('; ')}`,
+        message: `所有资讯源抓取失败：${sourceErrors.join('; ')}`,
         count: 0,
         sourceErrors,
       };
@@ -158,7 +179,7 @@ exports.main = async (event) => {
 
     // 去重（相同标题只保留一条，按重要性优先）
     const seen = new Set();
-    const uniqueNews = allNews.filter(item => {
+    const uniqueNews = allNewsResults.filter(item => {
       if (!item.title) return false;
       const key = item.title.slice(0, 20);
       if (seen.has(key)) return false;
@@ -174,15 +195,40 @@ exports.main = async (event) => {
     // 只保留前 80 条
     const saveNews = uniqueNews.slice(0, 80);
 
-    // 清理旧数据（保留最近 100 条）
-    const { total } = await db.collection('news_cache').count();
-    if (total > 100) {
-      const { data: old } = await db.collection('news_cache')
-        .orderBy('publish_time', 'asc')
-        .limit(Math.max(0, total - 80))
-        .get();
-      const deletePromises = old.map(item => db.collection('news_cache').doc(item._id).remove());
-      await Promise.all(deletePromises);
+    // 清理超过 7 天的旧数据
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    try {
+      const { total } = await db.collection('news_cache').count();
+      if (total > 0) {
+        // 删除超过 7 天的老新闻
+        const oldRes = await db.collection('news_cache')
+          .where({ publish_time: db.command.lt(sevenDaysAgo) })
+          .limit(1000)
+          .get();
+        const oldItems = oldRes.data || [];
+        for (const item of oldItems) {
+          await db.collection('news_cache').doc(item._id).remove().catch(() => {});
+        }
+
+        // 若总数仍超过 100，再按数量清理最旧的
+        if (total > 100) {
+          const keepRes = await db.collection('news_cache')
+            .orderBy('publish_time', 'desc')
+            .limit(80)
+            .get();
+          const keepIds = new Set((keepRes.data || []).map(d => d._id));
+          const extraRes = await db.collection('news_cache')
+            .limit(1000)
+            .get();
+          for (const item of extraRes.data || []) {
+            if (!keepIds.has(item._id)) {
+              await db.collection('news_cache').doc(item._id).remove().catch(() => {});
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[fetchNews] cleanup error:', e && e.message);
     }
 
     // 写入新的资讯

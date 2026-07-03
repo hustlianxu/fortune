@@ -119,7 +119,7 @@ Page({
     if (settings.priceAlert && settings.tmplIds.price_alert) tmplIds.push(settings.tmplIds.price_alert);
 
     // 3. 请求订阅消息权限（仅当存在已填写的真实模板 ID 时）
-    //    未填写的项不会请求订阅，避免 fail 噪音
+    //    未填写的项将使用云函数中的默认模板，无需请求订阅授权也能正常推送
     if (tmplIds.length > 0) {
       wx.requestSubscribeMessage({
         tmplIds,
@@ -144,20 +144,7 @@ Page({
       },
     });
 
-    // 5. 提示成功，并明确告知未填写模板 ID 的项将无法推送
-    const missing = [];
-    if (settings.morningNews && !settings.tmplIds.morning) missing.push('早报');
-    if (settings.eveningNews && !settings.tmplIds.evening) missing.push('晚报');
-    if (settings.priceAlert && !settings.tmplIds.price_alert) missing.push('涨跌提醒');
+    // 5. 提示成功
     wx.showToast({ title: '保存成功', icon: 'success' });
-    if (missing.length > 0) {
-      setTimeout(() => {
-        wx.showToast({
-          title: `${missing.join('、')}未填模板 ID，暂不会推送`,
-          icon: 'none',
-          duration: 3000,
-        });
-      }, 1500);
-    }
   },
 });

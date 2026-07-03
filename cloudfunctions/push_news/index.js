@@ -18,6 +18,13 @@ const db = cloud.database();
 
 const MAX_BATCH = 1000; // 单次 get 上限
 
+// 默认模板 ID（开发者在小程序后台申请后填入，当用户未配置时使用）
+// 请替换为你在微信公众平台「订阅消息」模块申请到的实际模板 ID
+const DEFAULT_TMPL_IDS = {
+  morning: '',
+  evening: '',
+};
+
 // 占位符（仅用于判断用户是否填了真实模板 ID，不再用于实际推送）
 const PLACEHOLDER_HINT = 'YOUR_';
 
@@ -72,14 +79,18 @@ exports.main = async (event) => {
       const touser = setting._openid;
       if (!touser) continue;
 
-      // 模板 ID 解析：优先用户配置 tmplIds.{tmplField}，缺失则跳过
+      // 模板 ID 解析：优先用户配置 tmplIds.{tmplField}，未配置则使用默认模板
       const userTmplIds = setting.tmplIds || {};
-      const templateId = (userTmplIds[tmplField] || '').trim();
+      let templateId = (userTmplIds[tmplField] || '').trim();
       if (!templateId || templateId.indexOf(PLACEHOLDER_HINT) === 0) {
+        // 用户未配置时，使用云函数中预设的默认模板 ID
+        templateId = DEFAULT_TMPL_IDS[tmplField] || '';
+      }
+      if (!templateId) {
         skippedNoTmpl++;
         errors.push({
           touser,
-          error: '未配置订阅消息模板 ID（请在「我-推送设置」中填入）',
+          error: '未配置订阅消息模板 ID（开发者需在 push_news/index.js 设置 DEFAULT_TMPL_IDS）',
         });
         continue;
       }

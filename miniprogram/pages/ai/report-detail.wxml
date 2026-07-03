@@ -17,6 +17,10 @@
       <text class="risk-badge-{{report.riskClass}}">{{report.risk_level}}</text>
     </view>
 
+    <view class="report-toolbar">
+      <text class="btn-download" bindtap="onDownload">📥 下载研报</text>
+    </view>
+
     <view class="section-title" wx:if="{{report.summary}}">摘要</view>
     <view class="report-summary">{{report.summary}}</view>
 

@@ -54,5 +54,23 @@ Page({
     return found ? found.name : typeKey || '未知';
   },
 
+  /** 下载（复制到剪贴板） */
+  onDownload() {
+    const content = this.data.report.report_content || '';
+    if (!content) { wx.showToast({ title: '报告内容为空', icon: 'none' }); return; }
+    const preview = content.slice(0, 100).replace(/[\n\r]+/g, ' ') + (content.length > 100 ? '...' : '');
+    wx.setClipboardData({
+      data: content,
+      success() {
+        wx.showModal({
+          title: '研报已复制',
+          content: `前 100 字预览：${preview}\n\n内容已复制到剪贴板，可粘贴到笔记软件保存。`,
+          showCancel: false, confirmText: '知道了',
+        });
+      },
+      fail() { wx.showToast({ title: '复制失败', icon: 'none' }); },
+    });
+  },
+
   formatDate,
 });

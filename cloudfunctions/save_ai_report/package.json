@@ -1,0 +1,9 @@
+{
+  "name": "save_ai_report",
+  "version": "1.0.0",
+  "description": "保存 AI 分析报告",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

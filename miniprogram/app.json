@@ -64,5 +64,11 @@
   "darkmode": true,
   "themeLocation": "theme.json",
   "sitemapLocation": "sitemap.json",
-  "cloud": true
+  "cloud": true,
+  "networkTimeout": {
+    "request": 120000,
+    "connectSocket": 60000,
+    "uploadFile": 120000,
+    "downloadFile": 120000
+  }
 }

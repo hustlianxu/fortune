@@ -1,116 +1,89 @@
 /**
  * AI 持仓分析页面
  * - 支持多 AI 协作：选中多个分析师独立分析，再由汇总模型综合
- * - 单选时退化为单模型分析（向后兼容）
+ * - 单选时优先前端直调 LLM（绕过云函数 60s 限制）
+ * - 4 个 Tab：持仓健康度 / 盈亏归因分析 / 调仓建议 / 风险暴露评估
+ * - 每份研报默认折叠，支持下载
  */
 const api = require('../../utils/api');
 const { formatMoney, formatDate, getPriceColor } = require('../../utils/format');
-const { ANALYSIS_TYPES, LLM_PROVIDERS } = require('../../utils/constants');
+const { ANALYSIS_TYPES, LLM_PROVIDERS, CLOUD_FUNCTIONS } = require('../../utils/constants');
 const { parseMarkdown } = require('../../utils/markdown');
 
-// 单次分析最久等待时间（毫秒）。超过即视为超时，提示用户稍后查看，
-// 并允许重新进入页面时自动加载最近一次报告（见 onShow 与 onAnalyzeTimeout）。
 const ANALYZE_TIMEOUT_MS = 55 * 1000;
 
 Page({
   data: {
     loading: true,
     analyzing: false,
+    analyzeProgress: '',
     canAnalyze: false,
     providerConfigured: false,
-    configuredProviders: [],   // 已配置且启用的 provider 列表 [{key,name}]
-    analysts: [],              // 选中的分析师 provider key 数组
-    // 选中态 map（{ providerKey: true }），供 WXML 用 analystSelected[item.key] 判断。
-    // 历史根因：WXML 表达式不支持函数调用，analysts.indexOf(item.key) 永远返回 undefined，
-    // 改用对象成员访问才能正确驱动 selected class / active 图标 / ✓ 勾选标记。
+    configuredProviders: [],
+    analysts: [],
     analystSelected: {},
-    synthIndex: 0,             // 汇总模型 picker 索引
-    synthNames: [],            // 汇总模型名称列表（随选中分析师动态更新）
+    synthIndex: 0,
+    synthNames: [],
     selectedType: 'portfolio_health',
     analysisTypes: ANALYSIS_TYPES,
     summary: {
-      totalAssets: 0,
-      totalPnL: 0,
-      holdings: [],
-      holdingCount: 0,
-      accountCount: 0,
+      totalAssets: 0, totalPnL: 0, holdings: [], holdingCount: 0, accountCount: 0,
     },
+    // 当前分析结果
     result: {
-      show: false,
-      summary: '',
-      keyFindings: [],
-      findingBlocks: [],     // 每条 key_finding 解析后的 markdown blocks
-      riskLevel: '',
-      content: '',
-      contentBlocks: [],     // report_content 解析后的 markdown blocks
-      subContentBlocks: [],  // 子报告解析后的 markdown blocks 数组（与 subReports 一一对应）
-      date: '',
-      multiMode: false,
-      subReports: [],
+      show: false, summary: '', keyFindings: [], findingBlocks: [],
+      riskLevel: '', content: '', contentBlocks: [], subContentBlocks: [],
+      date: '', multiMode: false, subReports: [],
     },
     showSubReports: false,
-    // 上一次分析超时但服务端可能仍在生成，重新进入页面时自动展示最新报告
+    // 超时重试
     hasPendingReport: false,
     pendingHint: '',
-    historyReports: [],
-    // 历史记录分页 + 折叠
-    historyExpanded: {},      // { [reportId]: true } 折叠态 map（默认全部折叠）
-    historyBlocks: {},        // { [reportId]: markdownBlocks } 展开时缓存的解析结果
-    historyPage: 0,           // 当前已加载页码（0 起）
-    historyPageSize: 10,      // 每页条数
-    historyHasMore: true,     // 是否还有更多
-    historyLoadingMore: false,
+    // Tab 研报列表（按 selectedType 筛选）
+    tabReports: [],
+    tabPage: 0,
+    tabPageSize: 10,
+    tabHasMore: true,
+    tabLoadingMore: false,
+    historyExpanded: {},
+    historyBlocks: {},
+    // 问答
     qaQuestion: '',
     qaAnswer: '',
     canAsk: false,
     pnlColor: 'price-flat',
+    // 动态计算字段（通过 _updateTypeDisplay 更新）
+    currentTypeName: '',
+    currentTypeIcon: '',
   },
 
   onShow() {
+    this._updateTypeDisplay();
     this.loadData();
     this.loadLLMConfig();
-    this.loadHistory();
-    // 若上次分析超时（hasPendingReport，内存态），自动尝试加载最新报告
+    this.loadTabReports(true);
     if (this.data.hasPendingReport) {
       this.tryLoadLatestAfterTimeout();
-      return;
     }
-    // 即便内存态丢失（用户切出后页面被回收），也检查本地 storage 中的 pending 标记，
-    // 让用户重新进来即可看到刚才的解析结果。
     this._checkStoredPending();
   },
 
-  onHide() {
-    // 离开页面时停止轮询，避免后台空跑
-    this._stopPollLatest();
-  },
-  onUnload() {
-    this._stopPollLatest();
-  },
+  onHide() { this._stopPollLatest(); },
+  onUnload() { this._stopPollLatest(); },
 
-  /** 检查本地 storage 中是否有 pending 标记（跨页面生命周期） */
   _checkStoredPending() {
     try {
       const pending = wx.getStorageSync('ai_pending_report');
       if (!pending || !pending.startedAt) return;
-      // 超过 30 分钟视为已过期，不再尝试拉取
       if (Date.now() - pending.startedAt > 30 * 60 * 1000) {
         wx.removeStorageSync('ai_pending_report');
         return;
       }
-      this.setData({
-        hasPendingReport: true,
-        pendingHint: '上次分析仍在生成中，正在为您拉取最新结果…',
-      });
+      this.setData({ hasPendingReport: true, pendingHint: '上次分析仍在生成中，正在为您拉取最新结果…' });
       this.tryLoadLatestAfterTimeout();
     } catch (e) {}
   },
 
-  /**
-   * 超时后重新进入页面，自动尝试拉取最新一份报告并展示。
-   * 若最新报告时间在「分析开始时间」之后，则视为本次超时分析的结果。
-   * 同时启动轮询：每 8 秒拉一次，最多 5 次（覆盖 40 秒），让用户切回来也能看到。
-   */
   async tryLoadLatestAfterTimeout() {
     const startedAt = (function () {
       try {
@@ -119,63 +92,55 @@ Page({
       } catch (e) { return Date.now() - 60 * 1000; }
     })();
     const got = await this._fetchLatestAndFill(startedAt);
-    if (got) {
-      this._stopPollLatest();
-      return;
-    }
-    // 没拉到 → 启动轮询
+    if (got) { this._stopPollLatest(); return; }
     this._startPollLatest(startedAt);
   },
 
-  /** 拉取最新报告，若 created_at > startedAt 则填充并清除 pending 标记，返回 true */
   async _fetchLatestAndFill(startedAt) {
     try {
-      const reports = await api.getAnalysisReports();
+      const reports = await api.getAnalysisReports(0, 10, this.data.selectedType);
       if (!reports || reports.length === 0) return false;
-      // 跳过 failed:true 的失败占位记录（云函数异常时写入），找第一条真实报告
       const candidate = reports.find(r => !r.failed && r.created_at);
       if (!candidate) return false;
       const created = new Date(candidate.created_at);
       if (isNaN(created.getTime())) return false;
-      // 最新报告创建时间晚于「分析开始时间」即视为本次结果
       if (created.getTime() >= startedAt) {
         this.fillResultFromReport(candidate, { multiMode: false, subReports: [] });
         this.setData({ hasPendingReport: false, pendingHint: '' });
         try { wx.removeStorageSync('ai_pending_report'); } catch (e) {}
-        this.loadHistory();
+        this.loadTabReports(true);
         return true;
       }
       return false;
-    } catch (e) {
-      console.warn('[AI] _fetchLatestAndFill error:', e);
-      return false;
-    }
+    } catch (e) { return false; }
   },
 
-  /** 启动轮询拉取最新报告（最多 12 次，每 8 秒，覆盖云函数 60s 上限 + DB 写入延迟） */
   _startPollLatest(startedAt) {
     this._stopPollLatest();
     let count = 0;
-    const MAX = 12;
     this._pollTimer = setInterval(async () => {
       count++;
       const got = await this._fetchLatestAndFill(startedAt);
-      if (got || count >= MAX) {
+      if (got || count >= 12) {
         this._stopPollLatest();
-        if (!got && count >= MAX) {
-          this.setData({
-            pendingHint: '仍在生成中，请稍后下拉刷新或前往「历史分析记录」查看。',
-          });
+        if (!got && count >= 12) {
+          this.setData({ pendingHint: '仍在生成中，请稍后下拉刷新或切换 Tab 查看。' });
         }
       }
     }, 8000);
   },
 
   _stopPollLatest() {
-    if (this._pollTimer) {
-      clearInterval(this._pollTimer);
-      this._pollTimer = null;
-    }
+    if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+  },
+
+  /** 更新当前 Tab 名称与图标（同步 selectedType → currentTypeName/Icon） */
+  _updateTypeDisplay() {
+    const t = ANALYSIS_TYPES.find(a => a.key === this.data.selectedType);
+    this.setData({
+      currentTypeName: t ? t.name : '',
+      currentTypeIcon: t ? t.icon : '📊',
+    });
   },
 
   async loadData() {
@@ -205,87 +170,71 @@ Page({
           .map(p => ({ key: p.key, name: p.name }));
       }
       const providerConfigured = configuredProviders.length > 0;
-      // 默认选中第一个已配置模型
       let analysts = this.data.analysts;
       if (analysts.length === 0 && configuredProviders.length > 0) {
         analysts = [configuredProviders[0].key];
       } else if (configuredProviders.length > 0) {
-        // 过滤掉已失效的选中项
         analysts = analysts.filter(k => configuredProviders.some(p => p.key === k));
         if (analysts.length === 0) analysts = [configuredProviders[0].key];
-      } else {
-        analysts = [];
-      }
+      } else { analysts = []; }
       this.setData({ configuredProviders, providerConfigured, analysts });
       this._syncAnalystSelected();
       this.updateSynthNames();
       this.updateCanAnalyze();
-    } catch (err) {
-      console.error('[AI] loadLLMConfig error:', err);
-    }
+    } catch (err) { console.error('[AI] loadLLMConfig error:', err); }
   },
 
-  /** 由 analysts 数组派生 analystSelected map，供 WXML 模板用 obj[key] 判断选中态 */
   _syncAnalystSelected() {
     const map = {};
     (this.data.analysts || []).forEach(k => { map[k] = true; });
     this.setData({ analystSelected: map });
   },
 
-  async loadHistory(reset) {
+  /** 加载当前 Tab 类型的研报列表（按 created_at 倒序，分页） */
+  async loadTabReports(reset) {
     try {
-      if (this.data.historyLoadingMore) return;
-      const isReset = reset !== false; // 默认 reset=true，仅传 false 时追加
-      const page = isReset ? 0 : this.data.historyPage;
-      const pageSize = this.data.historyPageSize;
-      this.setData({ historyLoadingMore: true });
-      const reports = await api.getAnalysisReports(page * pageSize, pageSize);
-      const merged = isReset ? reports : this.data.historyReports.concat(reports);
-      // 返回条数 < pageSize → 没有更多
+      if (this.data.tabLoadingMore) return;
+      const isReset = reset !== false;
+      const page = isReset ? 0 : this.data.tabPage;
+      const pageSize = this.data.tabPageSize;
+      this.setData({ tabLoadingMore: true });
+      const reports = await api.getAnalysisReports(page * pageSize, pageSize, this.data.selectedType);
+      const merged = isReset ? reports : this.data.tabReports.concat(reports);
       const hasMore = reports.length >= pageSize;
       const patch = {
-        historyReports: merged,
-        historyPage: page,
-        historyHasMore: hasMore,
-        historyLoadingMore: false,
+        tabReports: merged,
+        tabPage: page,
+        tabHasMore: hasMore,
+        tabLoadingMore: false,
       };
-      if (isReset) {
-        // reset 时清空折叠态与缓存，避免旧 id 残留
-        patch.historyExpanded = {};
-        patch.historyBlocks = {};
-      }
+      if (isReset) { patch.historyExpanded = {}; patch.historyBlocks = {}; }
       this.setData(patch);
     } catch (err) {
-      console.error('[AI] loadHistory error:', err);
-      this.setData({ historyLoadingMore: false });
+      console.error('[AI] loadTabReports error:', err);
+      this.setData({ tabLoadingMore: false });
     }
   },
 
-  /** 加载更多历史（分页） */
-  onLoadMoreHistory() {
-    if (!this.data.historyHasMore || this.data.historyLoadingMore) return;
-    const nextPage = this.data.historyPage + 1;
-    this.setData({ historyPage: nextPage });
-    this.loadHistory(false);
+  onLoadMoreTabReports() {
+    if (!this.data.tabHasMore || this.data.tabLoadingMore) return;
+    const nextPage = this.data.tabPage + 1;
+    this.setData({ tabPage: nextPage });
+    this.loadTabReports(false);
   },
 
-  /** 切换某条历史报告的展开/折叠态（折叠式展示，避免跳转） */
+  /** 切换某条历史研报的展开/折叠态 */
   onToggleHistoryItem(e) {
     const id = e.currentTarget.dataset.id;
     if (!id) return;
     const expanded = Object.assign({}, this.data.historyExpanded);
     const blocks = Object.assign({}, this.data.historyBlocks);
     if (expanded[id]) {
-      // 收起
       delete expanded[id];
     } else {
-      // 展开：若未缓存 markdown blocks 则现解析一份
       expanded[id] = true;
       if (!blocks[id]) {
-        const report = this.data.historyReports.find(r => r._id === id);
-        if (report) {
-          blocks[id] = parseMarkdown(report.report_content || '');
-        }
+        const report = this.data.tabReports.find(r => r._id === id);
+        if (report) blocks[id] = parseMarkdown(report.report_content || '');
       }
     }
     this.setData({ historyExpanded: expanded, historyBlocks: blocks });
@@ -293,74 +242,80 @@ Page({
 
   updateCanAnalyze() {
     this.setData({
-      canAnalyze: this.data.summary.holdings &&
-                  this.data.summary.holdings.length > 0 &&
-                  this.data.providerConfigured &&
-                  this.data.analysts.length > 0,
+      canAnalyze: this.data.summary.holdings && this.data.summary.holdings.length > 0 && this.data.providerConfigured && this.data.analysts.length > 0,
     });
   },
 
-  /** 切换分析师选中态 */
   onToggleAnalyst(e) {
     const key = e.currentTarget.dataset.key;
     let analysts = this.data.analysts.slice();
     const idx = analysts.indexOf(key);
     if (idx >= 0) {
-      // 至少保留 1 个
-      if (analysts.length <= 1) {
-        wx.showToast({ title: '至少选择 1 个模型', icon: 'none' });
-        return;
-      }
+      if (analysts.length <= 1) { wx.showToast({ title: '至少选择 1 个模型', icon: 'none' }); return; }
       analysts.splice(idx, 1);
-    } else {
-      analysts.push(key);
-    }
+    } else { analysts.push(key); }
     this.setData({ analysts });
     this._syncAnalystSelected();
     this.updateSynthNames();
     this.updateCanAnalyze();
   },
 
-  /** 更新汇总模型候选列表（仅含已选中的分析师） */
   updateSynthNames() {
     const selected = this.data.configuredProviders.filter(p => this.data.analysts.indexOf(p.key) >= 0);
     const synthNames = selected.map(p => p.name);
-    // 索引越界保护
     let synthIndex = this.data.synthIndex;
     if (synthIndex >= synthNames.length) synthIndex = 0;
     this.setData({ synthNames, synthIndex });
   },
 
-  onSynthChange(e) {
-    this.setData({ synthIndex: parseInt(e.detail.value, 10) });
-  },
+  onSynthChange(e) { this.setData({ synthIndex: parseInt(e.detail.value, 10) }); },
 
-  onTypeSelect(e) {
+  /** Tab 切换 */
+  onTabSelect(e) {
     const key = e.currentTarget.dataset.key;
-    this.setData({ selectedType: key });
+    if (key === this.data.selectedType) return;
+    this.setData({
+      selectedType: key,
+      result: { show: false, summary: '', keyFindings: [], findingBlocks: [],
+        riskLevel: '', content: '', contentBlocks: [], subContentBlocks: [],
+        date: '', multiMode: false, subReports: [] },
+      showSubReports: false,
+      hasPendingReport: false,
+      pendingHint: '',
+    });
+    this._updateTypeDisplay();
+    this.loadTabReports(true);
   },
 
+  /** ═══════ 开始分析 ═══════ */
   async onStartAnalysis() {
     if (!this.data.canAnalyze || this.data.analyzing) return;
     const analysts = this.data.analysts;
-    if (analysts.length === 0) {
-      wx.showToast({ title: '请至少选择 1 个模型', icon: 'none' });
-      return;
+    if (analysts.length === 0) { wx.showToast({ title: '请至少选择 1 个模型', icon: 'none' }); return; }
+
+    this.setData({ analyzing: true, showSubReports: false, analyzeProgress: '准备分析数据...' });
+    const multi = analysts.length > 1;
+
+    if (!multi) {
+      // ════ 单模型：优先前端直调 LLM（绕过 60s 云函数限制）════
+      try {
+        await this._directLLMAnalysis(analysts[0]);
+        wx.hideLoading();
+        this.setData({ analyzing: false });
+        return;
+      } catch (directErr) {
+        console.warn('[AI] direct LLM failed, fallback to cloud function:', directErr);
+        // fallback 到云函数
+      }
     }
 
-    this.setData({ analyzing: true, showSubReports: false });
-    const multi = analysts.length > 1;
-    wx.showLoading({
-      title: multi ? `多模型协作分析中（${analysts.length} 个模型）...` : 'AI 分析中...',
-      mask: true,
-    });
+    // ════ 云函数模式（多模型 or 直调失败降级）════
+    this.setData({ analyzeProgress: multi ? `多模型协作分析中（${analysts.length} 个模型）...` : 'AI 分析中...' });
+    wx.showLoading({ title: multi ? `多模型分析中...` : 'AI 分析中...', mask: true });
 
-    // 用 Promise.race 与超时竞争：超过 ANALYZE_TIMEOUT_MS 即视为超时，
-    // 但云函数可能仍在生成报告（服务端会写库），标记为 hasPendingReport，
-    // 让用户稍后或重新进入页面时通过 tryLoadLatestAfterTimeout 自动看到结果。
     const startedAt = Date.now();
-    let analyzePromise;
     try {
+      let analyzePromise;
       if (multi) {
         const synthKey = this.data.analysts[this.data.synthIndex] || analysts[0];
         analyzePromise = api.analyzePortfolioMulti(this.data.selectedType, analysts, synthKey);
@@ -369,9 +324,7 @@ Page({
       }
       const res = await Promise.race([
         analyzePromise,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('ANALYZE_TIMEOUT')), ANALYZE_TIMEOUT_MS)
-        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('ANALYZE_TIMEOUT')), ANALYZE_TIMEOUT_MS)),
       ]);
 
       if (res && res.success) {
@@ -381,7 +334,7 @@ Page({
         try { wx.removeStorageSync('ai_pending_report'); } catch (e) {}
         this._stopPollLatest();
         wx.hideLoading();
-        this.loadHistory();
+        this.loadTabReports(true);
       } else {
         wx.hideLoading();
         wx.showToast({ title: res?.message || '分析失败', icon: 'none' });
@@ -389,47 +342,164 @@ Page({
     } catch (err) {
       wx.hideLoading();
       const isTimeout = (err && err.message === 'ANALYZE_TIMEOUT');
-      // -404010: 云函数结果在微信轮询系统中过期（通常因云函数运行接近 60s 上限）。
-      // 此时云函数可能仍在执行并最终落库，按超时处理：标记 pending 并启动轮询。
       const isResultExpired = err && (
         err.errCode === -404010 ||
         (err.errMsg && err.errMsg.indexOf('-404010') >= 0) ||
         (err.message && err.message.indexOf('result expired') >= 0)
       );
       if (isTimeout || isResultExpired) {
-        // 客户端超时/结果过期，但服务端可能仍在生成。
-        // 将 startedAt 写入本地 storage，让用户重新进入页面（即便页面被回收）也能自动看到最新报告；
-        // 同时启动轮询，用户当前页等待 40 秒内也能看到结果。
-        try {
-          wx.setStorageSync('ai_pending_report', { startedAt, type: this.data.selectedType });
-        } catch (e) {}
+        try { wx.setStorageSync('ai_pending_report', { startedAt, type: this.data.selectedType }); } catch (e) {}
         this.setData({
           hasPendingReport: true,
-          pendingHint: isResultExpired
-            ? '云函数结果已过期，但服务端可能仍在生成。正在为您轮询最新结果…'
-            : '分析耗时较长，服务端仍在生成中。您可以切出本页稍后回来查看，本页也会每 8 秒自动刷新。',
+          pendingHint: isResultExpired ? '云函数结果已过期，但服务端可能仍在生成。正在为您轮询最新结果…' : '分析耗时较长，服务端仍在生成中。您可以切出本页稍后回来查看。',
         });
         wx.showModal({
           title: isResultExpired ? '结果拉取超时' : '分析超时',
-          content: 'AI 正在生成报告，但耗时较长。云函数会继续完成并保存。您可以切出本页做其他事，稍后回来将自动展示最新结果；也可在「历史分析记录」中查看。',
-          showCancel: false,
-          confirmText: '我知道了',
+          content: 'AI 正在生成报告，但耗时较长。云函数会继续完成并保存。您可以切出本页做其他事，稍后回来将自动展示最新结果。',
+          showCancel: false, confirmText: '我知道了',
         });
-        this.loadHistory();
-        // 启动轮询：用户留在本页时也能看到结果
+        this.loadTabReports(true);
         this._startPollLatest(startedAt);
       } else {
         wx.showToast({ title: '网络错误或 API Key 无效', icon: 'none' });
         console.error('[AI] analysis error:', err);
       }
     }
-
     this.setData({ analyzing: false });
   },
 
   /**
-   * 把后端 report 填到 result 并解析 markdown 为结构化 blocks（用于原生 view 渲染表格/列表/标题）
+   * 前端直接调用 LLM API（单模型模式，绕过云函数 60s 限制）
+   * 流程：
+   *   1. 调用 llm_gateway(return_prompt_only=true) → 获取 prompt + API Key
+   *   2. 前端直接调用 LLM API（wx.request，无超时限制）
+   *   3. 解析结果 → 保存到 analysis_reports（通过 save_ai_report 云函数）
+   *   4. 展示结果
    */
+  async _directLLMAnalysis(provider) {
+    const { selectedType } = this.data;
+    this.setData({ analyzeProgress: '获取分析数据...' });
+
+    // 1. 获取 prompt + API Key
+    const prep = await api.prepareAnalysis(selectedType, provider);
+    if (!prep || !prep.success || !prep.return_prompt_only) {
+      throw new Error('prepareAnalysis failed: ' + (prep?.message || 'unknown'));
+    }
+
+    const { prompt, apiKey, baseURL, model } = prep;
+    if (!apiKey) throw new Error('API Key 为空');
+    if (provider === 'claude' && !baseURL) {
+      // Claude 特殊处理：调用 Anthropic API
+      this.setData({ analyzeProgress: '调用 Claude API（无超时限制）...' });
+      const claudeBody = {
+        model: model || 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: '你是一位专业的投资顾问，回答要专业、具体、以数据为基础。使用中文回复。',
+        messages: [{ role: 'user', content: prompt }],
+      };
+      const claudeRes = await new Promise((resolve, reject) => {
+        wx.request({
+          url: 'https://api.anthropic.com/v1/messages',
+          method: 'POST',
+          header: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          data: claudeBody,
+          timeout: 120000, // 120s 超时
+          success: resolve,
+          fail: reject,
+        });
+      });
+      if (claudeRes.statusCode !== 200) {
+        throw new Error(`Claude API error ${claudeRes.statusCode}: ${JSON.stringify(claudeRes.data)}`);
+      }
+      const responseContent = (claudeRes.data.content && claudeRes.data.content[0] && claudeRes.data.content[0].text) || '';
+      await this._saveAndShowResult(responseContent, provider, model);
+      return;
+    }
+
+    // OpenAI 兼容接口
+    const effectiveBaseURL = baseURL || 'https://api.deepseek.com';
+    const effectiveModel = model || 'deepseek-chat';
+    const url = effectiveBaseURL.replace(/\/+$/, '') + '/chat/completions';
+
+    this.setData({ analyzeProgress: `调用 ${provider} API（无 60s 限制）...` });
+
+    const llmRes = await new Promise((resolve, reject) => {
+      wx.request({
+        url,
+        method: 'POST',
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        data: {
+          model: effectiveModel,
+          messages: [
+            { role: 'system', content: '你是一位专业的投资顾问，回答要专业、具体、以数据为基础。使用中文回复。' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 4096,
+        },
+        timeout: 120000, // 120s 超时，远超云函数的 60s
+        success: resolve,
+        fail: reject,
+      });
+    });
+
+    if (llmRes.statusCode !== 200) {
+      throw new Error(`LLM API error ${llmRes.statusCode}: ${JSON.stringify(llmRes.data)}`);
+    }
+    const content = (llmRes.data.choices && llmRes.data.choices[0] && llmRes.data.choices[0].message && llmRes.data.choices[0].message.content) || '';
+    if (!content) throw new Error('LLM 返回内容为空');
+
+    await this._saveAndShowResult(content, provider, effectiveModel);
+  },
+
+  /** 保存 & 展示 LLM 返回的分析结果 */
+  async _saveAndShowResult(content, provider, model) {
+    this.setData({ analyzeProgress: '正在保存分析报告...' });
+    const parsed = this._parseAnalysisResult(content);
+    const { selectedType } = this.data;
+
+    // 保存到云数据库
+    try {
+      await api.saveAIReport({
+        type: selectedType,
+        provider,
+        model: model || '',
+        summary: parsed.summary,
+        report_content: content,
+        key_findings: parsed.key_findings,
+        risk_level: parsed.risk_level,
+      });
+    } catch (saveErr) {
+      console.warn('[AI] save report error:', saveErr);
+      // 保存失败不影响展示
+    }
+
+    this.fillResultFromReport(parsed, { multiMode: false, subReports: [] });
+    this.loadTabReports(true);
+    wx.showToast({ title: '分析完成', icon: 'success' });
+  },
+
+  /** 本地解析 LLM 分析结果（与 llm_gateway 中的 parseAnalysisResult 同步） */
+  _parseAnalysisResult(content) {
+    const result = {
+      summary: '', key_findings: [], risk_level: '', report_content: content,
+    };
+    const summaryMatch = content.match(/【摘要】([\s\S]*?)(?=【|$)/);
+    if (summaryMatch) result.summary = summaryMatch[1].trim();
+    const riskMatch = content.match(/(?:风险等级|风险评级|综合评级)[：:]?\s*(A|B|C|D|保守|稳健|进取|激进|低|中低|中等|中高|高)/);
+    if (riskMatch) result.risk_level = riskMatch[1];
+    const findingLines = content.split('\n').filter(line => line.match(/[🟢🟡🔴•·-]\s/) || line.match(/^\d+[.、]/)).slice(0, 10);
+    result.key_findings = findingLines.map(l => l.replace(/^[🟢🟡🔴]\s*/, '').trim()).filter(Boolean);
+    return result;
+  },
+
   fillResultFromReport(report, extra) {
     const keyFindings = report.key_findings || [];
     const findingBlocks = keyFindings.map(f => parseMarkdown(String(f)));
@@ -439,35 +509,60 @@ Page({
     this.setData({
       result: {
         show: true,
-        summary: report.summary || '',
-        keyFindings,
-        findingBlocks,
-        riskLevel: report.risk_level || '',
-        content: report.report_content || '',
-        contentBlocks,
-        subContentBlocks,
-        date: formatDate(new Date()),
-        multiMode: (extra && extra.multiMode) || false,
-        subReports,
+        summary: report.summary || '', keyFindings, findingBlocks,
+        riskLevel: report.risk_level || '', content: report.report_content || '', contentBlocks,
+        subContentBlocks, date: formatDate(new Date()),
+        multiMode: (extra && extra.multiMode) || false, subReports,
       },
     });
   },
 
-  onToggleSubReports() {
-    this.setData({ showSubReports: !this.data.showSubReports });
+  onToggleSubReports() { this.setData({ showSubReports: !this.data.showSubReports }); },
+
+  /** ═══════ 下载当前分析结果 ═══════ */
+  onDownloadCurrentReport() {
+    const { result, selectedType } = this.data;
+    if (!result.content) { wx.showToast({ title: '无报告可下载', icon: 'none' }); return; }
+    this._downloadReportContent(result.content, this._typeName(selectedType) + '_' + result.date);
   },
 
-  onViewHistory(e) {
-    const report = e.currentTarget.dataset.report;
-    wx.navigateTo({
-      url: `/pages/ai/report-detail?id=${report._id}`,
+  /** 下载历史研报 */
+  onDownloadHistoryReport(e) {
+    const id = e.currentTarget.dataset.id;
+    const report = this.data.tabReports.find(r => r._id === id);
+    if (!report || !report.report_content) { wx.showToast({ title: '报告内容为空', icon: 'none' }); return; }
+    this._downloadReportContent(report.report_content, this._typeName(report.type) + '_' + (report.snapshot_date || report.created_at || ''));
+  },
+
+  /** 通用下载：复制到剪贴板 + 弹窗提示 */
+  _downloadReportContent(content, filename) {
+    // 截取前 100 字符作为预览
+    const preview = content.slice(0, 100).replace(/[\n\r]+/g, ' ') + (content.length > 100 ? '...' : '');
+    wx.setClipboardData({
+      data: content,
+      success() {
+        wx.showModal({
+          title: '研报已复制',
+          content: `「${filename}」\n\n前 100 字预览：${preview}\n\n内容已复制到剪贴板，可粘贴到备忘录或笔记软件保存。`,
+          showCancel: false,
+          confirmText: '知道了',
+        });
+      },
+      fail() {
+        wx.showToast({ title: '复制失败', icon: 'none' });
+      },
     });
   },
 
+  _typeName(key) {
+    const t = ANALYSIS_TYPES.find(a => a.key === key);
+    return t ? t.name : key;
+  },
+
+  // ═══════ 智能问答 ═══════
   async onAskQuestion() {
     const question = this.data.qaQuestion.trim();
     if (!question) return;
-    // QA 模式用第一个选中的模型
     const provider = this.data.analysts[0] || 'deepseek';
 
     this.setData({ qaAnswer: '' });
@@ -476,7 +571,6 @@ Page({
     try {
       const res = await api.askAI(question, provider);
       wx.hideLoading();
-
       if (res && res.success) {
         this.setData({ qaAnswer: res.answer || '暂无回答' });
       } else {
@@ -488,22 +582,11 @@ Page({
     }
   },
 
-  onQaInputChange(e) {
-    this.setData({ canAsk: (e.detail.value || '').trim().length > 0 });
-  },
-
+  onQaInputChange(e) { this.setData({ canAsk: (e.detail.value || '').trim().length > 0 }); },
   onQuickQuestion(e) {
     const q = e.currentTarget.dataset.q;
-    this.setData({ qaQuestion: q, canAsk: true }, () => {
-      this.onAskQuestion();
-    });
+    this.setData({ qaQuestion: q, canAsk: true }, () => { this.onAskQuestion(); });
   },
 
-  analysisTypeName(typeKey) {
-    const found = ANALYSIS_TYPES.find(t => t.key === typeKey);
-    return found ? found.name : typeKey;
-  },
-
-  formatMoney,
-  formatDate,
+  formatMoney, formatDate,
 });

@@ -88,21 +88,43 @@ async function getHoldingsAnalysis() {
 }
 
 /**
- * 获取历史分析报告列表（按 created_at 倒序，分页）
- * @param {number} [skip=0] - 跳过条数，用于分页
+ * 获取 AI 分析报告所需的 prompt + API Key（前端直调 LLM，绕过云函数 60s 限制）
+ * @param {string} type - 分析类型
+ * @param {string} provider - 模型提供商
+ * @returns {Promise<{success, prompt, apiKey, baseURL, model, provider}>}
+ */
+async function prepareAnalysis(type, provider) {
+  return callCloudFunction(CLOUD_FUNCTIONS.LLM_GATEWAY, {
+    type,
+    provider,
+    return_prompt_only: true,
+  }, { timeout: 30000 });
+}
+
+/**
+ * 保存 AI 分析报告（前端直调 LLM 后，通过此函数持久化）
+ */
+async function saveAIReport(report) {
+  return callCloudFunction(CLOUD_FUNCTIONS.SAVE_AI_REPORT, report);
+}
+
+/**
+ * 获取历史分析报告列表（按 created_at 倒序，分页，可选按类型筛选）
+ * @param {number} [skip=0] - 跳过条数
  * @param {number} [limit=10] - 单页条数
+ * @param {string} [type] - 分析类型筛选（可选）
  * @returns {Promise<Array>} 报告数组
  */
-async function getAnalysisReports(skip, limit) {
+async function getAnalysisReports(skip, limit, type) {
   try {
     const db = wx.cloud.database();
     const sk = skip || 0;
     const lm = limit || 10;
-    const res = await db.collection('analysis_reports')
-      .orderBy('created_at', 'desc')
-      .skip(sk)
-      .limit(lm)
-      .get();
+    let query = db.collection('analysis_reports').orderBy('created_at', 'desc');
+    if (type) {
+      query = query.where({ type });
+    }
+    const res = await query.skip(sk).limit(lm).get();
     return res.data || [];
   } catch (err) {
     console.error('[getAnalysisReports] error:', err);
@@ -356,4 +378,6 @@ module.exports = {
   getPortfolioSummary,
   parseTradesByText,
   inferIndustry,
+  prepareAnalysis,
+  saveAIReport,
 };

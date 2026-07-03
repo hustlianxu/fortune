@@ -82,21 +82,32 @@ Page({
         wx.showToast({ title: `获取到 ${result.count || 0} 条资讯`, icon: 'success' });
         this.loadNews();
       } else {
-        // 暴露具体失败原因，便于用户/开发者定位（如所有资讯源失败、网络超时等）
+        // 获取失败时，显示缓存数据 + Toast 提示（不弹模态框遮挡）
         const msg = (result && result.message) ? result.message : '获取失败';
-        wx.showModal({
-          title: '获取失败',
-          content: msg,
-          showCancel: false,
-        });
+        wx.showToast({ title: '获取失败：' + msg.slice(0, 20), icon: 'none', duration: 3000 });
+        // 尝试加载已有缓存
+        await this.loadNews();
+        if (this.data.newsList.length === 0) {
+          wx.showModal({
+            title: '获取失败',
+            content: msg + '\n\n目前也无缓存资讯，请稍后再试。',
+            showCancel: false,
+          });
+        }
       }
     } catch (err) {
       wx.hideLoading();
-      wx.showModal({
-        title: '获取失败',
-        content: err && err.errMsg ? err.errMsg : '网络错误，请稍后重试',
-        showCancel: false,
-      });
+      const errMsg = err && err.errMsg ? err.errMsg : '网络错误';
+      wx.showToast({ title: '获取超时' + (errMsg.length > 8 ? '' : '：' + errMsg), icon: 'none', duration: 2000 });
+      // 超时也尝试加载已有缓存
+      await this.loadNews();
+      if (this.data.newsList.length === 0) {
+        wx.showModal({
+          title: '获取失败',
+          content: errMsg + '\n\n目前也无缓存资讯，请稍后再试。',
+          showCancel: false,
+        });
+      }
     }
   },
 });
