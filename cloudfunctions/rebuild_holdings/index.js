@@ -86,11 +86,13 @@ exports.main = async (event) => {
 
   try {
     // 1. 构建查询条件
+    // 注意：云函数以 admin 身份运行，不通过 _openid 过滤交易记录，
+    // 而是通过 account_id 隔离（account_id 本身就是用户私有的）。
+    // 若加 _openid 过滤，历史导入（3570e3e 版本）的未带 _openid 的交易会被漏掉，
+    // 导致 rebuild 时回放不出持仓 → "持仓人间蒸发"。
     const where = {};
     if (account_id) where.account_id = account_id;
     if (product_code) where.product_code = product_code;
-    // 按用户隔离查询交易记录，避免跨用户回放
-    if (openid) where._openid = openid;
 
     // 2. 拉取全部交易（按日期升序回放）
     let txns = await fetchAll('transactions', Object.keys(where).length ? where : null);
@@ -100,6 +102,23 @@ exports.main = async (event) => {
     // 否则用户删除持仓后再导入同一股票，旧交易会污染新持仓。
     // 这些交易仍保留在 DB 中，可通过「已清理数据」入口恢复）
     txns = txns.filter(t => !t.holding_deleted);
+
+    // 2.5 数据修复：给历史无 _openid 的交易记录补上当前用户 openid
+    //     （3570e3e 版本导入的交易未写 _openid，导致小程序端查不到交易记录）
+    if (openid) {
+      for (const t of txns) {
+        if (!t._openid) {
+          try {
+            await db.collection('transactions').doc(t._id).update({
+              data: { _openid: openid, updated_at: db.serverDate() },
+            });
+            t._openid = openid;  // 同步内存对象，后续逻辑可用
+          } catch (e) {
+            console.warn('[rebuild] fix _openid failed for txn', t._id, e);
+          }
+        }
+      }
+    }
 
     // 排序：trade_date asc, created_at asc
     txns.sort((a, b) => {
@@ -195,11 +214,28 @@ exports.main = async (event) => {
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓（拉取全部，处理重复持仓），按 _openid 隔离
+      // 查询现有持仓（拉取全部，处理重复持仓）
+      // 不加 _openid 过滤：历史持仓可能没有 _openid（3570e3e 版本创建的），
+      // account_id 本身就是用户私有的，足以隔离。
       const existWhere = { account_id: h.account_id, product_code: h.product_code };
-      if (openid) existWhere._openid = openid;
       const existRes = await db.collection('holdings').where(existWhere).get();
       const existList = (existRes && existRes.data) || [];
+
+      // 数据修复：给历史无 _openid 的持仓补上当前用户 openid（确保小程序端可见）
+      if (openid) {
+        for (const ex of existList) {
+          if (!ex._openid) {
+            try {
+              await db.collection('holdings').doc(ex._id).update({
+                data: { _openid: openid, updated_at: db.serverDate() },
+              });
+              ex._openid = openid;
+            } catch (e) {
+              console.warn('[rebuild] fix holding _openid failed:', ex._id, e);
+            }
+          }
+        }
+      }
 
       // 用现有持仓的 current_price 重算 market_value / pnl / total_pnl，避免重建后还要刷行情才同步
       // 优先取 updated_at 最新的那条（避免取到脏数据）

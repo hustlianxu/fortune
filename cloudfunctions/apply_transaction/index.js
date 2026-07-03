@@ -152,6 +152,8 @@ exports.main = async (event) => {
     const amount = Number(txn.amount) || 0;
 
     // 归属人优先取交易记录上的 _openid，回退当前调用者
+    // 注意：历史导入的交易可能没有 _openid，此时 ownerOpenid 可能为空，
+    // 查询持仓时不加 _openid 过滤（靠 account_id 隔离即可），否则会漏掉历史持仓。
     const ownerOpenid = txn._openid || openid;
 
     // 2. 分红/利息：找对应持仓累加 total_dividend（不影响份额）
@@ -163,7 +165,8 @@ exports.main = async (event) => {
         return { success: true, message: '分红/利息缺账户或代码，仅记录', skipped: true };
       }
       const where = { account_id: txn.account_id, product_code: txn.product_code };
-      if (ownerOpenid) where._openid = ownerOpenid;
+      // 不加 _openid 过滤：历史持仓可能没有 _openid（3570e3e 版本导入的），
+      // 加过滤会导致查不到这些持仓。account_id 本身就是用户私有的，足以隔离。
       const existRes = await db.collection('holdings').where(where).get();
       const existList = (existRes && existRes.data) || [];
       const existing = existList[0];
@@ -224,9 +227,9 @@ exports.main = async (event) => {
     // 4. 用事务包裹「查询+合并+upsert」，杜绝并发双建和"删了不补"
     //    事务内：查询现有持仓 → 合并重复持仓 → 计算 newShares/cost → 更新/新建 → 删除多余
     const transactionResult = await db.runTransaction(async (transaction) => {
-      // 事务内查询：按 _openid + account_id + product_code 隔离
+      // 事务内查询：按 account_id + product_code 隔离（不加 _openid，
+      // 避免漏掉历史无 _openid 的持仓，account_id 已能隔离用户）
       const where = { account_id: txn.account_id, product_code: txn.product_code };
-      if (ownerOpenid) where._openid = ownerOpenid;
       const existRes = await transaction.collection('holdings').where(where).get();
       const existList = (existRes && existRes.data) || [];
 
