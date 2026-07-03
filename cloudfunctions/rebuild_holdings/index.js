@@ -44,8 +44,13 @@ exports.main = async (event) => {
   const { account_id, product_code } = event || {};
 
   try {
-    // 1. 构建查询条件
+    // 当前调用者 openid（用于数据隔离 + 新建持仓归属）
+    const wxContext = cloud.getWXContext();
+    const openid = wxContext.OPENID || '';
+
+    // 1. 构建查询条件（按 openid 隔离，仅回放当前用户的交易）
     const where = {};
+    if (openid) where._openid = openid;
     if (account_id) where.account_id = account_id;
     if (product_code) where.product_code = product_code;
 
@@ -141,14 +146,18 @@ exports.main = async (event) => {
     let rebuilt = 0;
     let cleared = 0;
     const keys = Object.keys(holdingsMap);
+    const survivors = [];  // [{ account_id, product_code, _id }] 重建后存活持仓的 _id，供客户端跳转
 
     for (let i = 0; i < keys.length; i++) {
       const h = holdingsMap[keys[i]];
-      // 查询现有持仓
-      const existRes = await db.collection('holdings').where({
+      let survivingId = '';
+      // 查询现有持仓（按 openid 隔离）
+      const existWhere = {
         account_id: h.account_id,
         product_code: h.product_code,
-      }).limit(1).get();
+      };
+      if (openid) existWhere._openid = openid;
+      const existRes = await db.collection('holdings').where(existWhere).limit(1).get();
 
       const updateData = {
         shares: h.shares,
@@ -166,10 +175,12 @@ exports.main = async (event) => {
       if (existRes.data.length > 0) {
         // 保留现有的 current_price/market_value 等行情字段，仅更新份额/成本/累计字段
         // total_pnl 等行情刷新时由 sync_prices 重算
+        survivingId = existRes.data[0]._id;
         await db.collection('holdings').doc(existRes.data[0]._id).update({ data: updateData });
       } else {
         // 新建
         const newHolding = Object.assign({}, updateData, {
+          _openid: openid,
           account_id: h.account_id,
           product_code: h.product_code,
           product_type: h.product_type,
@@ -183,8 +194,10 @@ exports.main = async (event) => {
           note: '',
           created_at: db.serverDate(),
         });
-        await db.collection('holdings').add({ data: newHolding });
+        const addRes = await db.collection('holdings').add({ data: newHolding });
+        survivingId = addRes._id;
       }
+      survivors.push({ account_id: h.account_id, product_code: h.product_code, _id: survivingId });
       rebuilt++;
       if (h.is_cleared) cleared++;
     }
@@ -211,6 +224,8 @@ exports.main = async (event) => {
       cleared,
       marked,
       totalTxns: txns.length,
+      // 重建后存活的持仓列表（含 _id），客户端据此跳转，避免把已被去重删除的记录重新加载到详情页
+      survivors,
     };
   } catch (err) {
     console.error('[rebuild_holdings] error:', err);

@@ -308,7 +308,7 @@ function hasFeeRates(account) {
  * - 推断 product_type / exchange（用于费率计算和写入）
  * - fee 缺失（0）时按账户费率自动计算
  */
-async function postProcessTrades(trades, account_id, warnings) {
+async function postProcessTrades(trades, account_id, warnings, openid) {
   if (!trades || trades.length === 0) return trades;
 
   // 拉账户
@@ -320,12 +320,14 @@ async function postProcessTrades(trades, account_id, warnings) {
     console.warn('[postProcess] account not found:', account_id, e);
   }
 
-  // 拉账户下已有持仓，用于补全 product_type / exchange
+  // 拉账户下已有持仓，用于补全 product_type / exchange（按 openid 隔离）
   let holdingsMap = {};
   if (account) {
     try {
+      const holdingWhere = { account_id };
+      if (openid) holdingWhere._openid = openid;
       const { data: holdings } = await db.collection('holdings')
-        .where({ account_id }).get();
+        .where(holdingWhere).get();
       holdings.forEach(h => {
         const key = (h.product_code || '').toUpperCase();
         if (key) holdingsMap[key] = h;
@@ -369,10 +371,70 @@ async function postProcessTrades(trades, account_id, warnings) {
  * - buy 计算 is_opening（首次建仓）
  * - buy/sell/dividend/interest 调 apply_transaction 应用到持仓，失败仅预警（交易已记录，可重建修复）
  * - transfer_in/transfer_out/fee 仅记录
+ *
+ * 重要修复（2025-07）：
+ *   - 批量导入同一 product_code 的多笔交易时，先确保持仓存在，避免并发竞争导致持仓被误删
  */
 const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
 
-async function importTrade(trade, account_id, warnings) {
+/**
+ * 批量导入前预处理：为每个 (account_id, product_code) 确保持仓存在
+ * 避免并发 apply_transaction 创建多个持仓后互相删除
+ */
+async function ensureHoldingsExist(trades, account_id, openid, warnings) {
+  const productCodes = new Set();
+  trades.forEach(t => {
+    if (HOLDING_AFFECTING.indexOf(t.type) >= 0 && t.product_code) {
+      productCodes.add(t.product_code);
+    }
+  });
+
+  for (const code of productCodes) {
+    try {
+      const holdingWhere = { account_id, product_code: code };
+      if (openid) holdingWhere._openid = openid;
+      const existRes = await db.collection('holdings')
+        .where(holdingWhere)
+        .limit(1).get();
+      if (existRes.data && existRes.data.length > 0) continue; // 已存在
+
+      // 创建空持仓占位（等待 apply_transaction 更新）
+      const firstTrade = trades.find(t => t.product_code === code && t.type === 'buy');
+      if (!firstTrade) continue; // 没有买入交易，不需要创建
+
+      const placeholderHolding = {
+        _openid: openid,
+        account_id,
+        product_code: code,
+        product_name: firstTrade.product_name || code,
+        product_type: firstTrade.product_type || '',
+        exchange: firstTrade.exchange || '',
+        shares: 0,
+        cost_price: 0,
+        cost_value: 0,
+        current_price: firstTrade.price || 0,
+        market_value: 0,
+        pnl: 0,
+        pnl_percent: 0,
+        realized_pnl: 0,
+        total_dividend: 0,
+        total_fee: 0,
+        total_pnl: 0,
+        daily_change: 0,
+        is_cleared: false,
+        buy_date: '',
+        note: '',
+        created_at: db.serverDate(),
+        updated_at: db.serverDate(),
+      };
+      await db.collection('holdings').add({ data: placeholderHolding });
+    } catch (e) {
+      console.warn('[ensureHoldingsExist] error for', code, e);
+    }
+  }
+}
+
+async function importTrade(trade, account_id, warnings, openid) {
   const type = trade.type;
   // 影响持仓的交易必须有产品代码
   if (HOLDING_AFFECTING.indexOf(type) >= 0 && !trade.product_code) {
@@ -383,13 +445,17 @@ async function importTrade(trade, account_id, warnings) {
   let isOpening = false;
   if (type === 'buy') {
     try {
+      const holdingWhere = { account_id, product_code: trade.product_code };
+      if (openid) holdingWhere._openid = openid;
       const existHolding = await db.collection('holdings')
-        .where({ account_id, product_code: trade.product_code })
+        .where(holdingWhere)
         .limit(1).get();
       const hasHolding = existHolding.data && existHolding.data.length > 0;
       if (!hasHolding) {
+        const txnWhere = { account_id, product_code: trade.product_code, type: 'buy' };
+        if (openid) txnWhere._openid = openid;
         const existBuy = await db.collection('transactions')
-          .where({ account_id, product_code: trade.product_code, type: 'buy' })
+          .where(txnWhere)
           .limit(1).get();
         const hasBuy = existBuy.data && existBuy.data.length > 0;
         isOpening = !hasBuy;
@@ -400,6 +466,7 @@ async function importTrade(trade, account_id, warnings) {
   }
 
   const data = {
+    _openid: openid || '',
     account_id,
     type,
     product_code: trade.product_code || '',
@@ -459,6 +526,10 @@ exports.main = async (event) => {
     return { success: false, message: '缺少 account_id（请先选择目标账户）' };
   }
 
+  // 当前调用者 openid（用于数据隔离 + 写入归属）
+  const wxCtx = cloud.getWXContext();
+  const openid = wxCtx.OPENID || '';
+
   const warnings = [];
   let trades = [];
 
@@ -481,16 +552,14 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings);
+      trades = await postProcessTrades(trades, account_id, warnings, openid);
     } else {
       // text 模式：调 LLM 解析
       if (!text || !text.trim()) {
         return { success: false, message: '请输入要解析的文字', trades: [], warnings: [] };
       }
 
-      // 读取用户 LLM 配置（按 openid 隔离）
-      const wxCtx = cloud.getWXContext();
-      const openid = wxCtx.OPENID || '';
+      // 读取用户 LLM 配置（按 openid 隔离，openid 已在 main 顶部获取）
       const cfgQuery = openid ? { _openid: openid } : {};
       const { data: configs } = await db.collection('llm_configs').where(cfgQuery).get();
       const userConfig = configs[0];
@@ -546,7 +615,7 @@ exports.main = async (event) => {
       }
       trades = parsed.map(t => normalizeTrade(t, warnings)).filter(Boolean);
       // 后处理：补全 product_type/exchange + 自动计算手续费
-      trades = await postProcessTrades(trades, account_id, warnings);
+      trades = await postProcessTrades(trades, account_id, warnings, openid);
     }
 
     if (trades.length === 0) {
@@ -569,11 +638,16 @@ exports.main = async (event) => {
       };
     }
 
-    // ============ 3. 实际写入 ============
+    // ============ 3. 批量导入前预处理 ============
+    // 为每个 (account_id, product_code) 先创建持仓占位，避免并发 apply_transaction
+    // 创建多个持仓后互相删除（修复「批量导入后持仓人间蒸发」问题）
+    await ensureHoldingsExist(trades, account_id, openid, warnings);
+
+    // ============ 4. 实际写入 ============
     let imported = 0;
     for (let i = 0; i < trades.length; i++) {
       try {
-        await importTrade(trades[i], account_id, warnings);
+        await importTrade(trades[i], account_id, warnings, openid);
         imported++;
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);
