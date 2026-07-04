@@ -106,17 +106,8 @@ Page({
       } else if (type === 'sell') {
         const sellRealized = (tPrice - rpCostPrice) * tShares - tFee;
         rpRealized += sellRealized;
-        const newShares = Math.max(0, rpShares - tShares);
-        if (newShares > 0) {
-          // 同花顺口径：盈利卖出降低剩余成本，超投入时变负
-          const sellProceeds = tPrice * tShares - tFee;
-          rpCostValue = Number((rpCostValue - sellProceeds).toFixed(2));
-          rpCostPrice = rpCostValue / newShares;
-        } else {
-          rpCostValue = 0;
-          rpCostPrice = 0;
-        }
-        rpShares = newShares;
+        rpShares = Math.max(0, rpShares - tShares);
+        rpCostValue = rpShares * rpCostPrice;
         rpFee += tFee;
       } else if (type === 'dividend' || type === 'interest') {
         rpDividend += tAmount;
@@ -569,16 +560,8 @@ Page({
           // 已实现盈亏 = (卖出价 - 成本价) × 卖出份额 - 卖出手续费
           const sellRealized = (tPrice - costPrice) * tShares - tFee;
           realizedPnl += sellRealized;
-          const newShares = Math.max(0, shares - tShares);
-          if (newShares > 0) {
-            const sellProceeds = tPrice * tShares - tFee;
-            costValue = Number((costValue - sellProceeds).toFixed(2));
-            costPrice = costValue / newShares;
-          } else {
-            costValue = 0;
-            costPrice = 0;
-          }
-          shares = newShares;
+          shares = Math.max(0, shares - tShares);
+          costValue = shares * costPrice;
           totalFee += tFee;
         } else if (type === 'dividend' || type === 'interest') {
           totalDividend += tAmount;

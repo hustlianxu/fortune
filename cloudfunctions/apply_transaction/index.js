@@ -282,18 +282,14 @@ exports.main = async (event) => {
         newShares = oldShares - shares;
         isClearedNow = newShares <= 0;
         const finalShares = isClearedNow ? 0 : newShares;
-        const oldCostPrice = Number(existing.cost_price) || 0;
-        const oldCostValue = Number(existing.cost_value) || (oldShares * oldCostPrice);
-        // 同花顺口径：盈利卖出降低剩余成本，累计盈利超投入时成本为负
-        const sellProceeds = price * shares - fee;
-        const newCostValueAfterSell = oldCostValue - sellProceeds;
-        newCostValue = isClearedNow ? 0 : Number(newCostValueAfterSell.toFixed(2));
-        newCostPrice = isClearedNow || finalShares <= 0 ? 0 : Number((newCostValueAfterSell / finalShares).toFixed(4));
-        const sellRealized = (price - oldCostPrice) * shares - fee;
+        const costPrice = Number(existing.cost_price) || 0;
+        newCostValue = Number((finalShares * costPrice).toFixed(2));
+        const sellRealized = (price - costPrice) * shares - fee;
         newRealized = (Number(existing.realized_pnl) || 0) + sellRealized;
         newDividend = Number(existing.total_dividend) || 0;
         newTotalFee = (Number(existing.total_fee) || 0) + fee;
         newShares = finalShares;
+        newCostPrice = costPrice;
       }
 
       const finalMarketValue = isClearedNow ? 0 : (Number(existing && existing.market_value) || 0);

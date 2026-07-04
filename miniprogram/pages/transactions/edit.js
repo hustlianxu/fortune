@@ -361,8 +361,8 @@ Page({
     }
 
     const amount = parseFloat(form.amount);
-    // 红股入账（红利再投）只有份额没有金额，跳过金额校验
-    const noAmountTypes = ['stock_dividend'];
+    // 拆分/合并、红股入账 只有份额没有金额，跳过金额校验
+    const noAmountTypes = ['stock_dividend', 'split'];
     if (noAmountTypes.indexOf(type) === -1 && (isNaN(amount) || amount <= 0)) {
       wx.showToast({ title: '请输入有效金额', icon: 'none' });
       return;

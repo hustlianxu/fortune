@@ -180,7 +180,7 @@ exports.main = async (event) => {
           if (!h.buy_date) h.buy_date = t.trade_date || '';
           if (!h.product_name && t.product_name) h.product_name = t.product_name;
         } else {
-          // 卖出
+          // 卖出（加权平均法：成本价不变，份额减少）
           const newShares = h.shares - shares;
           const isCleared = newShares <= 0;
           const finalShares = isCleared ? 0 : newShares;
@@ -194,15 +194,8 @@ exports.main = async (event) => {
             h.cost_value = 0;
             h.cost_price = 0;
           } else {
-            // 同花顺口径：卖出后成本价 = (原成本金额 - 卖出收入) / 剩余份额
-            // 卖出收入 = price × shares_sold - fee（扣除卖出手续费）
-            // 这样盈利卖出后成本会下降，累计盈利超过初始投入时变为负成本
-            const sellProceeds = price * shares - fee;
-            const newCostValue = Number((h.cost_value - sellProceeds).toFixed(2));
-            const newCostPrice = newCostValue / finalShares;
-            h.cost_value = newCostValue;
-            h.cost_price = Number(newCostPrice.toFixed(4));
             h.shares = finalShares;
+            h.cost_value = Number((finalShares * h.cost_price).toFixed(2));
           }
         }
       } else if (type === 'dividend' || type === 'interest') {
