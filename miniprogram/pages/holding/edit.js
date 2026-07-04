@@ -2,8 +2,9 @@
  * 添加/编辑持仓页面
  * 支持产品代码自动补全名称，产品名称搜索建议
  */
-const { PRODUCT_TYPES, PRODUCT_TYPE_TREE } = require('../../utils/constants');
+const { PRODUCT_TYPES, PRODUCT_TYPE_TREE, CLOUD_FUNCTIONS } = require('../../utils/constants');
 const { inferProductType, inferExchange } = require('../../utils/inferProduct');
+const api = require('../../utils/api');
 
 Page({
   data: {
@@ -360,12 +361,23 @@ Page({
         updated_at: db.serverDate(),
       };
 
+      // 编辑模式检测是否跨账户迁移
+      let oldAccountId = '';
+      let oldProductCode = '';
+      if (this.data.isEdit) {
+        try {
+          const oldRes = await db.collection('holdings').doc(this.data.holdingId).get();
+          const oldH = oldRes.data || {};
+          oldAccountId = oldH.account_id || '';
+          oldProductCode = oldH.product_code || '';
+        } catch (e) { console.warn('[HoldingEdit] load old failed:', e); }
+      }
+
       if (this.data.isEdit) {
         await db.collection('holdings').doc(this.data.holdingId).update({ data });
       } else {
         // 新建前先检查是否已存在同 (account_id, product_code) 的持仓，
-        // 若已存在则改为更新该持仓，避免产生重复持仓（与 rebuild_holdings / apply_transaction
-        // 的去重口径一致，防止「重建后出现重复数据」）
+        // 若已存在则改为更新该持仓，避免产生重复持仓
         const existRes = await db.collection('holdings')
           .where({ account_id: f.account_id, product_code: f.product_code })
           .limit(1).get();
@@ -378,6 +390,55 @@ Page({
           await db.collection('holdings').add({
             data: { ...data, created_at: db.serverDate() },
           });
+        }
+      }
+
+      // 跨账户迁移：将关联交易也迁移到新账户，否则新账户下看不到交易记录
+      if (oldAccountId && oldAccountId !== f.account_id && oldProductCode) {
+        console.log('[HoldingEdit] migrating txns from', oldAccountId, 'to', f.account_id, 'product=', oldProductCode);
+        try {
+          // 1. 更新所有关联交易的 account_id
+          const batchSize = 20;
+          let migratedTxns = 0;
+          while (true) {
+            const txnRes = await db.collection('transactions')
+              .where({ account_id: oldAccountId, product_code: oldProductCode })
+              .limit(batchSize).get();
+            const batch = txnRes.data || [];
+            if (batch.length === 0) break;
+            for (const t of batch) {
+              await db.collection('transactions').doc(t._id).update({
+                data: { account_id: f.account_id, updated_at: db.serverDate() },
+              });
+              migratedTxns++;
+            }
+            if (batch.length < batchSize) break;
+          }
+          console.log('[HoldingEdit] migrated', migratedTxns, 'transactions');
+          // 2. 重建旧账户该产品的持仓（旧账户下的交易已全部迁走，持仓应为空/清仓）
+          if (oldProductCode) {
+            await wx.cloud.callFunction({
+              name: 'rebuild_holdings',
+              data: { account_id: oldAccountId, product_code: oldProductCode },
+            });
+          }
+          // 3. 如果产品代码也变了，重建新账户旧产品持仓
+          if (f.product_code && f.product_code !== oldProductCode) {
+            await wx.cloud.callFunction({
+              name: 'rebuild_holdings',
+              data: { account_id: f.account_id, product_code: oldProductCode },
+            });
+          }
+          // 4. 重建新账户新产品持仓（交易已迁入）
+          await wx.cloud.callFunction({
+            name: 'rebuild_holdings',
+            data: { account_id: f.account_id, product_code: f.product_code || oldProductCode },
+          });
+          // 5. 同步余额
+          try { await api.recalcCashBalance(oldAccountId); } catch (e) {}
+          try { await api.recalcCashBalance(f.account_id); } catch (e) {}
+        } catch (e) {
+          console.error('[HoldingEdit] migration failed:', e);
         }
       }
 
