@@ -21,9 +21,7 @@
       </view>
       <view class="price-item">
         <text class="price-label">浮动盈亏</text>
-        <text class="price-value {{fmt.pnlClass(holding.pnl)}}">
-          {{fmt.pnlSign(holding.pnl)}}{{fmt.formatMoney(holding.pnl)}}
-        </text>
+        <text class="price-value {{fmt.pnlClass(holding.pnl)}}">{{fmt.pnlSign(holding.pnl)}}{{fmt.formatMoney(holding.pnl)}}</text>
       </view>
     </view>
 

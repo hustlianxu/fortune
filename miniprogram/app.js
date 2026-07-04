@@ -45,7 +45,6 @@ App({
       platform: deviceInfo.platform || '',
     };
     this.globalData.statusBarHeight = windowInfo.statusBarHeight || 20;
-    this.globalData.statusBarHeight = systemInfo.statusBarHeight;
 
     // 检查是否有缓存的行情数据
     this.checkDailyUpdate();
