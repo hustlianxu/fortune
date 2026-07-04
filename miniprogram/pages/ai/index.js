@@ -56,10 +56,13 @@ Page({
     currentTypeName: '',
     currentTypeIcon: '',
     currentTypeDesc: '',
+    // 已读研报 ID 集合（持久化到 localStorage，供待阅标记使用）
+    readReports: {},
   },
 
   onShow() {
     this._updateTypeDisplay();
+    this._loadReadReports();
     this.loadData();
     this.loadLLMConfig();
     this.loadTabReports(true);
@@ -224,6 +227,24 @@ Page({
     this.loadTabReports(false);
   },
 
+  /** 从 localStorage 加载已读集合 */
+  _loadReadReports() {
+    try {
+      const stored = wx.getStorageSync('ai_read_reports');
+      this.setData({ readReports: stored || {} });
+    } catch (e) { this.setData({ readReports: {} }); }
+  },
+
+  /** 标记一份研报为已读（持久化 + 更新 data） */
+  _markReportRead(id) {
+    if (!id) return;
+    const readReports = Object.assign({}, this.data.readReports);
+    if (readReports[id]) return; // 已标记过
+    readReports[id] = true;
+    this.setData({ readReports });
+    try { wx.setStorageSync('ai_read_reports', readReports); } catch (e) {}
+  },
+
   /** 切换某条历史研报的展开/折叠态 */
   onToggleHistoryItem(e) {
     const id = e.currentTarget.dataset.id;
@@ -234,6 +255,7 @@ Page({
       delete expanded[id];
     } else {
       expanded[id] = true;
+      this._markReportRead(id); // 展开即标记已读
       if (!blocks[id]) {
         const report = this.data.tabReports.find(r => r._id === id);
         if (report) blocks[id] = parseMarkdown(report.report_content || '');
