@@ -33,6 +33,7 @@ Page({
       amount: '',
       fee: '',
       trade_date: '',
+      ratio: '',    // 拆分/合并比例
       note: '',
     },
     suggestions: [],        // 产品名搜索建议
@@ -279,6 +280,10 @@ Page({
     this.maybeAutoCalcFee();
   },
 
+  onRatioInput(e) {
+    this.setData({ 'form.ratio': e.detail.value });
+  },
+
   onFeeInput(e) {
     // 用户手动编辑手续费 → 标记为已触碰，后续不再自动覆盖
     this.setData({ 'form.fee': e.detail.value, _feeTouched: true, feeHint: '' });
@@ -399,7 +404,7 @@ Page({
         product_type: form.product_type || '',
         exchange: form.exchange || '',
         shares,
-        price,
+        price: type === 'split' ? (parseFloat(form.ratio) || 1) : price,
         amount,
         fee: isNaN(fee) ? 0 : Number(fee.toFixed(2)),
         trade_date: form.trade_date,
@@ -465,7 +470,7 @@ Page({
       // 触发持仓同步：
       // - 新建买卖：单笔 apply 即可
       // - 编辑交易（尤其是跨账户移动）：必须重建两侧持仓，否则 B 账户看不到刚挪过来的记录
-      const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest' || type === 'stock_dividend' || type === 'ipo_win');
+      const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest' || type === 'stock_dividend' || type === 'ipo_win' || type === 'split');
       const recalcBalance = async (accountId) => {
         try { await api.recalcCashBalance(accountId); } catch (e) { console.warn('[Balance] recalc error:', e); }
       };
@@ -547,7 +552,7 @@ Page({
       await db.collection('transactions').doc(this.data.transactionId).remove();
 
       // 删除后立即重建该 (account, product) 持仓
-      if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win'].indexOf(txn.type) >= 0) {
+      if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win', 'split'].indexOf(txn.type) >= 0) {
         try {
           await wx.cloud.callFunction({
             name: 'rebuild_holdings',

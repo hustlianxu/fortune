@@ -213,6 +213,18 @@ exports.main = async (event) => {
           h.cost_value = Number((newShares * h.cost_price).toFixed(2));
           h.is_cleared = false;
         }
+      } else if (type === 'split') {
+        // 拆分/合并：份额×比例，成本价÷比例（总资产不变）
+        const ratio = Number(t.price) || 1;
+        if (ratio > 0 && h.shares > 0) {
+          const newShares = h.shares * ratio;
+          h.shares = Number(newShares.toFixed(4));
+          if (h.cost_price !== 0) {
+            h.cost_price = Number((h.cost_price / ratio).toFixed(4));
+          }
+          h.cost_value = Number((h.shares * h.cost_price).toFixed(2));
+          h.is_cleared = false;
+        }
       } else if (type === 'ipo_win') {
         // 打新中签：增加份额及成本（用户需付款）
         const shares = Number(t.shares) || 0;
