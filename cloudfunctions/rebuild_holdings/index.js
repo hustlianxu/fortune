@@ -201,6 +201,35 @@ exports.main = async (event) => {
         // 分红/利息：累加 total_dividend
         const amount = Number(t.amount) || 0;
         h.total_dividend = Number((h.total_dividend + amount).toFixed(2));
+      } else if (type === 'stock_dividend') {
+        // 红股入账/红利再投：增加份额，不增加成本（免费红股）
+        const shares = Number(t.shares) || 0;
+        if (shares > 0) {
+          const oldShares = h.shares;
+          const newShares = oldShares + shares;
+          // 红利再投不改变成本价（股份免费获得）
+          h.shares = newShares;
+          h.cost_value = Number((newShares * h.cost_price).toFixed(2));
+          h.is_cleared = false;
+        }
+      } else if (type === 'ipo_win') {
+        // 打新中签：增加份额及成本（用户需付款）
+        const shares = Number(t.shares) || 0;
+        const price = Number(t.price) || 0;
+        const fee = Number(t.fee) || 0;
+        if (shares > 0) {
+          const buyCost = shares * price + fee;
+          const oldShares = h.shares;
+          const oldCostValue = h.cost_value;
+          const newShares = oldShares + shares;
+          const newCostValue = oldCostValue + buyCost;
+          const newCost = newShares > 0 ? newCostValue / newShares : price;
+          h.shares = newShares;
+          h.cost_price = Number(newCost.toFixed(4));
+          h.cost_value = Number(newCostValue.toFixed(2));
+          h.total_fee = Number((h.total_fee + fee).toFixed(2));
+          h.is_cleared = false;
+        }
       }
       // 其他类型（转账/手续费交易）跳过
     }

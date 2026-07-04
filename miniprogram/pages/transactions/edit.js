@@ -361,7 +361,9 @@ Page({
     }
 
     const amount = parseFloat(form.amount);
-    if (isNaN(amount) || amount <= 0) {
+    // 红股入账（红利再投）只有份额没有金额，跳过金额校验
+    const noAmountTypes = ['stock_dividend'];
+    if (noAmountTypes.indexOf(type) === -1 && (isNaN(amount) || amount <= 0)) {
       wx.showToast({ title: '请输入有效金额', icon: 'none' });
       return;
     }
@@ -463,7 +465,7 @@ Page({
       // 触发持仓同步：
       // - 新建买卖：单笔 apply 即可
       // - 编辑交易（尤其是跨账户移动）：必须重建两侧持仓，否则 B 账户看不到刚挪过来的记录
-      const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest');
+      const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest' || type === 'stock_dividend' || type === 'ipo_win');
       const recalcBalance = async (accountId) => {
         try { await api.recalcCashBalance(accountId); } catch (e) { console.warn('[Balance] recalc error:', e); }
       };
@@ -545,7 +547,7 @@ Page({
       await db.collection('transactions').doc(this.data.transactionId).remove();
 
       // 删除后立即重建该 (account, product) 持仓
-      if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest'].indexOf(txn.type) >= 0) {
+      if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win'].indexOf(txn.type) >= 0) {
         try {
           await wx.cloud.callFunction({
             name: 'rebuild_holdings',

@@ -206,12 +206,25 @@ exports.main = async (event) => {
       return { success: true, message: '已应用分红/利息' };
     }
 
-    // 3. 非买卖且非分红利息：仅记录
+    // 3. 非买卖但影响持仓的类型（红股入账、打新中签）同样需要处理
+    //    使用 rebuild_holdings 全量回放，确保处理口径一致
+    const holdingAffecting = ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win'];
+    if (holdingAffecting.indexOf(type) >= 0 && type !== 'buy' && type !== 'sell') {
+      // stock_dividend/ipo_win 只需标记已应用，让 rebuild_holdings 或下次重建时处理
+      if (!txn.shares || Number(txn.shares) <= 0) {
+        await db.collection('transactions').doc(transaction_id).update({
+          data: { applied_holding: true, applied_at: db.serverDate() },
+        });
+        return { success: true, message: `${type} 无有效份额，仅记录`, skipped: true };
+      }
+    }
+
+    // 4. 完全非持仓类型：仅记录
     if (type !== 'buy' && type !== 'sell') {
       await db.collection('transactions').doc(transaction_id).update({
         data: { applied_holding: true, applied_at: db.serverDate() },
       });
-      return { success: true, message: '非买卖交易，仅记录', skipped: true };
+      return { success: true, message: '非持仓交易，仅记录', skipped: true };
     }
 
     if (!txn.account_id || !txn.product_code) {

@@ -74,10 +74,10 @@ function buildParsePrompt(text) {
 规则：
 1. 日期格式统一为 YYYY-MM-DD，年份缺失时用当前年份 ${year}
 2. 金额"36块5""36.5""36元5"都解析为 36.50
-3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
+3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / stock_dividend(红股入账/红利再投) / ipo_win(打新中签) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
 4. 产品代码和产品名称至少填一个；如果用户只给了产品名称（如"招商银行""贵州茅台"），你可以凭知识补全其 A 股代码（如 600036、600519）；如果用户只给了代码，自动补全产品名称。两者都尽量填写完整
 5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
-6. 分红/利息类交易 shares 和 price 填 0，amount 填实际金额
+6. 分红/利息类交易：现金分红 type=dividend，shares 和 price 填 0，amount 填现金金额（元）；红利再投（以股代息）type=stock_dividend，amount 填 0，shares 填红股数量，price 填每股单价或0
 7. buy/sell 的 amount = shares × price（不含手续费），amount 永远为正数
 8. 卖出（sell）也用正数金额，系统靠 type 字段区分买入/卖出，不是靠金额正负
 9. product_type 字段：根据产品代码自动推断，填写以下枚举值之一——stock(A股股票) / etf(场内ETF) / lof(场内LOF) / reit(REITs) / hk_stock(港股) / us_stock(美股) / fund_stock(股票型基金) / fund_mix(混合型基金) / fund_bond(债券型基金) / fund_index(指数型基金) / fund_money(货币型基金)。如果无法推断则填空字符串
@@ -207,7 +207,7 @@ function extractJsonArray(content) {
 function normalizeTrade(t, warnings) {
   if (!t || typeof t !== 'object') return null;
   const type = String(t.type || '').toLowerCase();
-  const allowed = ['buy', 'sell', 'dividend', 'transfer_in', 'transfer_out', 'fee', 'interest'];
+  const allowed = ['buy', 'sell', 'dividend', 'stock_dividend', 'ipo_win', 'transfer_in', 'transfer_out', 'fee', 'interest'];
   if (!allowed.includes(type)) {
     warnings.push(`跳过未知交易类型：${t.type}`);
     return null;
@@ -247,8 +247,8 @@ function normalizeTrade(t, warnings) {
     warnings.push(`交易"${t.product_name || type}"日期格式异常：${tradeDate}，已用今天兜底`);
     tradeDate = new Date().toISOString().split('T')[0];
   }
-  // 买卖/分红/利息类交易需要产品代码才能匹配持仓，缺失时预警
-  const needsCode = ['buy', 'sell', 'dividend', 'interest'].indexOf(type) >= 0;
+  // 买卖/分红/红股/打新/利息类交易需要产品代码才能匹配持仓，缺失时预警
+  const needsCode = ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win'].indexOf(type) >= 0;
   if (needsCode && !String(t.product_code || '').trim()) {
     warnings.push(`「${t.product_name || type}」缺少产品代码，将无法匹配持仓（请在导入前补全代码）`);
   }
@@ -459,7 +459,7 @@ async function postProcessTrades(trades, account_id, warnings) {
  * - 不再每笔调用 apply_transaction，改为批量写完后统一 rebuild_holdings，
  *   避免 N 次嵌套调用导致的并发竞争和"持仓人间蒸发"
  */
-const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest'];
+const HOLDING_AFFECTING = ['buy', 'sell', 'dividend', 'interest', 'stock_dividend', 'ipo_win'];
 
 async function importTrade(trade, account_id, warnings, request_id, openid) {
   const type = trade.type;

@@ -489,7 +489,7 @@ Page({
           const txnRes = await db.collection('transactions').doc(id).get();
           const txn = txnRes.data;
           await db.collection('transactions').doc(id).remove();
-          if (txn && (txn.type === 'buy' || txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'interest')) {
+          if (txn && (txn.type === 'buy' || txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'interest' || txn.type === 'stock_dividend' || txn.type === 'ipo_win')) {
             await this.undoHolding(txn);
           }
           // 同步余额：删除交易后自动回滚金额变动
