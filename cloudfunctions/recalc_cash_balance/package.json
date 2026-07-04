@@ -1,0 +1,9 @@
+{
+  "name": "recalc_cash_balance",
+  "version": "1.0.0",
+  "description": "根据交易记录自动计算账户余额",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -665,6 +665,16 @@ exports.main = async (event) => {
       }
     }
 
+    // 同步账户余额
+    try {
+      await cloud.callFunction({
+        name: 'recalc_cash_balance',
+        data: { account_id },
+      });
+    } catch (e) {
+      console.warn('[parse_trades] recalc_cash_balance error:', e);
+    }
+
     return {
       success: true,
       trades,

@@ -88,6 +88,13 @@ async function getHoldingsAnalysis() {
 }
 
 /**
+ * 重新计算账户余额（基于交易记录自动调整）
+ */
+async function recalcCashBalance(accountId) {
+  return callCloudFunction(CLOUD_FUNCTIONS.RECALC_CASH_BALANCE, { account_id: accountId });
+}
+
+/**
  * 获取 AI 分析报告所需的 prompt + API Key（前端直调 LLM，绕过云函数 60s 限制）
  * @param {string} type - 分析类型
  * @param {string} provider - 模型提供商
@@ -381,6 +388,7 @@ module.exports = {
   getPortfolioSummary,
   parseTradesByText,
   inferIndustry,
+  recalcCashBalance,
   prepareAnalysis,
   saveAIReport,
 };

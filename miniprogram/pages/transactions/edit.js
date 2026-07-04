@@ -6,6 +6,7 @@
 const { TRANSACTION_TYPES } = require('../../utils/constants');
 const { calcTradeFee, hasFeeRates } = require('../../utils/fee');
 const { inferProductType, inferExchange } = require('../../utils/inferProduct');
+const api = require('../../utils/api');
 
 const db = wx.cloud.database();
 
@@ -463,6 +464,9 @@ Page({
       // - 新建买卖：单笔 apply 即可
       // - 编辑交易（尤其是跨账户移动）：必须重建两侧持仓，否则 B 账户看不到刚挪过来的记录
       const affectsHolding = (type === 'buy' || type === 'sell' || type === 'dividend' || type === 'interest');
+      const recalcBalance = async (accountId) => {
+        try { await api.recalcCashBalance(accountId); } catch (e) { console.warn('[Balance] recalc error:', e); }
+      };
       if (!isEdit && affectsHolding) {
         try {
           const applyRes = await wx.cloud.callFunction({
@@ -474,6 +478,8 @@ Page({
           } else {
             wx.showToast({ title: '已记录', icon: 'success' });
           }
+          // 同步余额
+          recalcBalance(form.account_id);
         } catch (applyErr) {
           console.warn('[Transaction Edit] apply failed:', applyErr);
           const msg = applyErr.errMsg && applyErr.errMsg.indexOf('FUNCTION_NOT_FOUND') >= 0
@@ -500,12 +506,17 @@ Page({
           }
           const tip = accountChanged ? '已保存，两侧持仓已重建' : '已保存，持仓已同步';
           wx.showToast({ title: tip, icon: 'success' });
+          // 同步余额（可能涉及新老两个账户）
+          recalcBalance(form.account_id);
+          if (oldAccount && oldAccount !== form.account_id) recalcBalance(oldAccount);
         } catch (rebuildErr) {
           console.warn('[Transaction Edit] rebuild failed:', rebuildErr);
           wx.showToast({ title: '已保存（持仓同步失败，请到「我的」整体重建）', icon: 'none' });
         }
       } else {
         wx.showToast({ title: '保存成功', icon: 'success' });
+        // 非持仓交易（转账等）也同步余额
+        recalcBalance(form.account_id);
       }
       setTimeout(() => wx.navigateBack(), 900);
     } catch (err) {
@@ -533,7 +544,7 @@ Page({
       const txn = txnRes.data || {};
       await db.collection('transactions').doc(this.data.transactionId).remove();
 
-      // 删除后立即重建该 (account, product) 持仓，避免出现持仓数量与交易明细不一致
+      // 删除后立即重建该 (account, product) 持仓
       if (txn.account_id && txn.product_code && ['buy', 'sell', 'dividend', 'interest'].indexOf(txn.type) >= 0) {
         try {
           await wx.cloud.callFunction({
@@ -544,8 +555,12 @@ Page({
           console.warn('[Transaction Edit] post-delete rebuild failed:', e);
         }
       }
+      // 同步余额：删除交易后重新计算，被删交易的金额自动回滚
+      if (txn.account_id) {
+        try { await api.recalcCashBalance(txn.account_id); } catch (e) { console.warn('[Balance] recalc error:', e); }
+      }
       wx.hideLoading();
-      wx.showToast({ title: '已删除，持仓已修正', icon: 'success' });
+      wx.showToast({ title: '已删除，持仓已修正，余额已同步', icon: 'success' });
       setTimeout(() => wx.navigateBack(), 800);
     } catch (err) {
       console.error('[Transaction Edit] delete error:', err);

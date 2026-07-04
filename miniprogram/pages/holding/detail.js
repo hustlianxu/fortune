@@ -7,6 +7,7 @@
  */
 const { formatMoney, formatDate, formatQuantity, formatPercent, getPriceColor } = require('../../utils/format');
 const { PRODUCT_TYPES } = require('../../utils/constants');
+const api = require('../../utils/api');
 
 const db = wx.cloud.database();
 
@@ -491,6 +492,10 @@ Page({
           if (txn && (txn.type === 'buy' || txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'interest')) {
             await this.undoHolding(txn);
           }
+          // 同步余额：删除交易后自动回滚金额变动
+          if (txn && txn.account_id) {
+            try { await api.recalcCashBalance(txn.account_id); } catch (e) { console.warn('[Balance] recalc error:', e); }
+          }
           wx.hideLoading();
           wx.showToast({ title: '已删除，持仓已修正', icon: 'success' });
           this.loadAll();
@@ -620,6 +625,10 @@ Page({
             wx.hideLoading();
             wx.showToast({ title: result.message || '删除失败', icon: 'none' });
             return;
+          }
+          // 同步余额
+          if (h.account_id) {
+            try { await api.recalcCashBalance(h.account_id); } catch (e) { console.warn('[Balance] recalc error:', e); }
           }
           wx.hideLoading();
           wx.showToast({ title: '已删除持仓及全部交易记录', icon: 'success' });

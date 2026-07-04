@@ -149,6 +149,7 @@ const CLOUD_FUNCTIONS = {
   INFER_INDUSTRY: 'infer_industry',
   DELETE_HOLDING: 'delete_holding',
   SAVE_AI_REPORT: 'save_ai_report',
+  RECALC_CASH_BALANCE: 'recalc_cash_balance',
 };
 
 module.exports = {

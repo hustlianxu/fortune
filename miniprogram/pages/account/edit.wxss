@@ -160,3 +160,10 @@
   display: block;
   margin-bottom: 20rpx;
 }
+
+.form-hint {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  margin-top: 6rpx;
+  display: block;
+}

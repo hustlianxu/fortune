@@ -55,8 +55,9 @@
     </view>
 
     <view class="form-group">
-      <text class="form-label">账户余额</text>
+      <text class="form-label">初始余额（交易自动调整）</text>
       <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance}}" bindinput="onCashBalanceInput" />
+      <text class="form-hint">买入/卖出/转账等交易将自动增减此余额</text>
     </view>
 
     <view class="form-group">

@@ -83,6 +83,16 @@ exports.main = async (event) => {
       'deleted', deletedTxns, 'txns,', deletedHoldings, 'holdings for',
       'account=' + aid + ', product=' + pcode);
 
+    // 同步账户余额
+    try {
+      await cloud.callFunction({
+        name: 'recalc_cash_balance',
+        data: { account_id: aid },
+      });
+    } catch (e) {
+      console.warn('[delete_holding] recalc_cash_balance error:', e);
+    }
+
     return {
       success: true,
       message: `已删除 ${deletedTxns} 条交易记录、${deletedHoldings} 条持仓记录`,
