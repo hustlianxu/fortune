@@ -281,7 +281,26 @@ exports.main = async (event) => {
         const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return tb - ta;
       });
-      const curPrice = sortedExisting.length > 0 ? (Number(sortedExisting[0].current_price) || 0) : h.cost_price;
+      // 取现有持仓的 current_price 重算市值。若 current_price 缺失（从未刷新行情），
+      // 兜底策略：① 现有持仓的 market_value / shares（保留原市值）；② cost_price
+      let curPrice = 0;
+      if (sortedExisting.length > 0) {
+        const ex = sortedExisting[0];
+        curPrice = Number(ex.current_price);
+        if (!curPrice || curPrice <= 0) {
+          // current_price 缺失 → 用现有 market_value / shares 反推（保留原市值）
+          const exShares = Number(ex.shares) || 0;
+          const exMv = Number(ex.market_value) || 0;
+          if (exShares > 0 && exMv > 0) {
+            curPrice = exMv / exShares;
+          } else {
+            // 仍然无法推断 → 回退 cost_price
+            curPrice = Number(ex.cost_price) || h.cost_price;
+          }
+        }
+      } else {
+        curPrice = h.cost_price;
+      }
       const marketValue = Number((h.shares * curPrice).toFixed(2));
       const pnl = Number((marketValue - h.cost_value).toFixed(2));
       const pnlPercent = h.cost_value > 0 ? Number(((pnl / h.cost_value) * 100).toFixed(2)) : 0;

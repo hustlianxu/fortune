@@ -19,7 +19,12 @@ exports.main = async (event) => {
   const openid = wxContext.OPENID || '';
 
   try {
-    // 1. 取该用户的所有交易记录，提取 (account_id, product_code) 唯一组合
+    // 1. 收集需要重建的 (account_id, product_code) 唯一组合
+    //    来源A：该用户有 _openid 的交易记录
+    //    来源B：该用户账户下已有的持仓（兼容历史无 _openid 的交易）
+    const productSet = new Set();
+
+    // 来源A：查询有 _openid 的交易
     let allTxns = [];
     let skip = 0;
     while (true) {
@@ -33,18 +38,31 @@ exports.main = async (event) => {
       skip += PAGE_SIZE;
       if (skip > 10000) break;
     }
-
-    // 提取唯一 (account_id, product_code) 对
-    const productSet = new Set();
-    const products = [];
     for (const t of allTxns) {
       if (t.account_id && t.product_code) {
-        const key = t.account_id + '|' + t.product_code;
-        if (!productSet.has(key)) {
-          productSet.add(key);
-          products.push({ account_id: t.account_id, product_code: t.product_code });
+        productSet.add(t.account_id + '|' + t.product_code);
+      }
+    }
+
+    // 来源B：查询该用户账户下现有的持仓（兼容无 _openid 的历史交易）
+    const accRes = await db.collection('accounts').where({ _openid: openid }).get();
+    const userAccountIds = (accRes.data || []).map(a => a._id);
+    if (userAccountIds.length > 0) {
+      const _ = db.command;
+      const holdingsRes = await db.collection('holdings')
+        .where({ account_id: _.in(userAccountIds) })
+        .limit(500).get();
+      for (const h of (holdingsRes.data || [])) {
+        if (h.account_id && h.product_code) {
+          productSet.add(h.account_id + '|' + h.product_code);
         }
       }
+    }
+
+    const products = [];
+    for (const key of productSet) {
+      const [acc, code] = key.split('|');
+      products.push({ account_id: acc, product_code: code });
     }
 
     if (products.length === 0) {
