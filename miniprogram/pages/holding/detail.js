@@ -111,6 +111,18 @@ Page({
         rpFee += tFee;
       } else if (type === 'dividend' || type === 'interest') {
         rpDividend += tAmount;
+      } else if (type === 'stock_dividend') {
+        // 红股入账/红利再投：增加份额，不增加成本
+        if (tShares > 0) rpShares += tShares;
+      } else if (type === 'ipo_win') {
+        // 打新中签：增加份额及成本（类似买入）
+        const buyCost = tShares * tPrice + tFee;
+        const newShares = rpShares + tShares;
+        const newCostValue = rpCostValue + buyCost;
+        rpCostPrice = newShares > 0 ? newCostValue / newShares : tPrice;
+        rpShares = newShares;
+        rpCostValue = newCostValue;
+        rpFee += tFee;
       }
     }
     const mismatch =
@@ -553,6 +565,18 @@ Page({
           totalFee += tFee;
         } else if (type === 'dividend' || type === 'interest') {
           totalDividend += tAmount;
+        } else if (type === 'stock_dividend') {
+          // 红股入账：增加份额，不增加成本
+          if (tShares > 0) shares += tShares;
+        } else if (type === 'ipo_win') {
+          // 打新中签：增加份额及成本（同买入）
+          const buyCost = tShares * tPrice + tFee;
+          const newShares = shares + tShares;
+          const newCostValue = costValue + buyCost;
+          costPrice = newShares > 0 ? newCostValue / newShares : tPrice;
+          shares = newShares;
+          costValue = newCostValue;
+          totalFee += tFee;
         }
       }
 
