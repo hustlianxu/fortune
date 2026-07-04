@@ -120,12 +120,15 @@ async function getAnalysisReports(skip, limit, type) {
     const db = wx.cloud.database();
     const sk = skip || 0;
     const lm = limit || 10;
-    let query = db.collection('analysis_reports').orderBy('created_at', 'desc');
+    let query = db.collection('analysis_reports');
     if (type) {
       query = query.where({ type });
     }
-    const res = await query.skip(sk).limit(lm).get();
-    return res.data || [];
+    // 使用 orderBy + limit(100) 全量拉取最新 100 条，再内存切片分页
+    // 原因：where + orderBy + skip 需要复合索引，若索引缺失 skip 会返回错误结果
+    const res = await query.orderBy('created_at', 'desc').limit(100).get();
+    const allData = res.data || [];
+    return allData.slice(sk, sk + lm);
   } catch (err) {
     console.error('[getAnalysisReports] error:', err);
     return [];

@@ -17,32 +17,32 @@
 .price-row {
   display: flex;
   justify-content: space-between;
-  align-items: stretch;
-  margin-bottom: 24rpx;
+  align-items: flex-start;
+  margin-bottom: 20rpx;
 }
 .price-item {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  min-height: 100rpx;
 }
 .price-label {
   font-size: 22rpx;
   color: var(--text-tertiary);
   display: block;
   text-align: center;
-  line-height: 1.3;
+  line-height: 1.4;
+  height: 30rpx;
 }
 .price-value {
   font-size: 30rpx;
   font-weight: 700;
   display: block;
-  margin-top: 6rpx;
+  margin-top: 8rpx;
   text-align: center;
-  line-height: 1.3;
-  word-break: break-all;
+  line-height: 1.4;
+  height: 42rpx;
+  overflow: hidden;
 }
 
 /* ═══════ 总收益卡（同花顺口径） ═══════ */
@@ -64,6 +64,11 @@
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 8rpx;
+}
+.total-pnl-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
 }
 .total-pnl-label { font-size: 26rpx; color: var(--text-secondary); }
 .total-pnl-value {
@@ -244,21 +249,20 @@
 
 .empty-hint { font-size: 24rpx; color: var(--text-tertiary); margin-top: 12rpx; }
 
-/* ═══════ 收益说明 ⓘ 图标 ═══════ */
+/* ═══════ 收益说明 ⓘ 图标（标签旁独立元素） ═══════ */
 .pnl-help-icon {
-  display: inline-block;
-  width: 32rpx;
-  height: 32rpx;
-  line-height: 32rpx;
+  width: 30rpx;
+  height: 30rpx;
+  line-height: 30rpx;
   text-align: center;
   border-radius: 50%;
-  font-size: 22rpx;
+  font-size: 20rpx;
   color: var(--text-tertiary);
   background: var(--bg-input);
-  margin-left: 8rpx;
-  vertical-align: middle;
+  border: 2rpx solid var(--border-color);
+  flex-shrink: 0;
 }
-.pnl-help-icon:active { opacity: 0.6; }
+.pnl-help-icon:active { opacity: 0.5; }
 
 /* ═══════ 交易排序条 ═══════ */
 .txn-sort-bar {

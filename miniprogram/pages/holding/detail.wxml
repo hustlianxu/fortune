@@ -30,10 +30,10 @@
     <!-- 总收益（同花顺口径） -->
     <view class="total-pnl-card {{fmt.pnlClass(holding.total_pnl)}}">
       <view class="total-pnl-row">
-        <text class="total-pnl-label">
-          总收益
+        <view class="total-pnl-label-row">
+          <text class="total-pnl-label">总收益</text>
           <text class="pnl-help-icon" bindtap="onShowPnlHelp">ⓘ</text>
-        </text>
+        </view>
         <text class="total-pnl-value">{{fmt.pnlSign(holding.total_pnl)}}{{fmt.formatMoney(holding.total_pnl)}}</text>
       </view>
       <text class="total-pnl-pct">收益率 {{fmt.formatPercent(holding.total_pnl_percent)}}</text>

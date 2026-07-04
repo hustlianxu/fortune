@@ -288,6 +288,16 @@
 .history-head-left { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .history-head-right { display: flex; align-items: center; flex-shrink: 0; }
 .history-type { font-size: 28rpx; font-weight: 500; color: var(--text-primary); }
+.history-unread-badge {
+  display: inline-block;
+  font-size: 18rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  background: var(--primary-color);
+  color: #fff;
+  margin-left: 8rpx;
+  vertical-align: middle;
+}
 .history-model { font-size: 22rpx; color: var(--text-tertiary); margin-top: 4rpx; }
 .history-partial {
   display: inline-block;

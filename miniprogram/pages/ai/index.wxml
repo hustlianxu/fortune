@@ -253,6 +253,7 @@
       <view class="history-head" bindtap="onToggleHistoryItem" data-id="{{item._id}}">
         <view class="history-head-left">
           <text class="history-type">{{c.analysisTypeName(item.type)}}</text>
+          <text class="history-unread-badge" wx:if="{{!historyExpanded[item._id]}}">待阅</text>
           <text class="history-model">{{item.provider || 'unknown'}}{{item.partial ? ' ⚠️部分' : ''}}</text>
         </view>
         <view class="history-head-right">
