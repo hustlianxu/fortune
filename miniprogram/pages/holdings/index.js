@@ -46,6 +46,8 @@ Page({
       { key: 'total_pnl', name: '总盈亏' },
       { key: 'today_pnl', name: '当日盈亏' },
       { key: 'pnl_percent', name: '盈亏幅度' },
+      { key: 'daily_change', name: '当日涨跌' },
+      { key: 'current_price', name: '现价' },
     ],
   },
 

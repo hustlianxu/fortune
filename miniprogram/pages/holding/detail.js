@@ -20,6 +20,15 @@ Page({
     loadingTxns: false,
     chartRendered: false,
     txnsExpanded: true,       // 交易列表默认展开
+    // 交易列表排序
+    txnSortBy: 'date',        // date | amount | shares | type
+    txnSortDesc: true,        // true=最新/大优先
+    txnSortOptions: [
+      { key: 'date', name: '日期' },
+      { key: 'amount', name: '金额' },
+      { key: 'shares', name: '份额' },
+      { key: 'type', name: '类型' },
+    ],
   },
 
   onLoad(options) {
@@ -157,9 +166,8 @@ Page({
     const totalFee = Number(holding.total_fee) || 0;                     // 累计手续费
     // 总收益（同花顺口径） = 浮动 + 已实现 + 分红 - 手续费
     const totalPnl = Number((pnl + realized + dividend - totalFee).toFixed(2));
-    // 总收益率（按累计投入成本算）
-    const investedCost = costValue + Math.max(0, realized);
-    const totalPnlPercent = investedCost > 0 ? (totalPnl / investedCost) * 100 : 0;
+    // 总收益率（与持仓列表口径一致：按总成本算）
+    const totalPnlPercent = costValue > 0 ? (totalPnl / costValue) * 100 : 0;
     const recomputed = Object.assign({}, holding, {
       market_value: marketValue,
       cost_value: costValue,
@@ -307,6 +315,7 @@ Page({
         displayTransactions: txns.slice().reverse(),
         loadingTxns: false,
       });
+      this._applyTxnSort();
     } catch (err) {
       console.error('[Holding Detail] load txns error:', err);
       this.setData({ loadingTxns: false });
@@ -624,9 +633,69 @@ Page({
     });
   },
 
+  /** 切换交易排序方式 */
+  onTxnSort(e) {
+    const key = e.currentTarget.dataset.key;
+    const { txnSortBy, txnSortDesc } = this.data;
+    if (txnSortBy === key) {
+      this.setData({ txnSortDesc: !txnSortDesc }, () => this._applyTxnSort());
+    } else {
+      this.setData({ txnSortBy: key, txnSortDesc: true }, () => this._applyTxnSort());
+    }
+  },
+
+  /** 按当前排序设置重排 displayTransactions */
+  _applyTxnSort() {
+    const { transactions, txnSortBy, txnSortDesc } = this.data;
+    const sorted = [...transactions].sort((a, b) => {
+      let va, vb;
+      if (txnSortBy === 'amount') {
+        va = Math.abs(Number(a.amount) || 0);
+        vb = Math.abs(Number(b.amount) || 0);
+      } else if (txnSortBy === 'shares') {
+        va = Math.abs(Number(a.shares) || 0);
+        vb = Math.abs(Number(b.shares) || 0);
+      } else if (txnSortBy === 'type') {
+        va = (a.type || '');
+        vb = (b.type || '');
+        return txnSortDesc ? vb.localeCompare(va) : va.localeCompare(vb);
+      } else {
+        // date
+        const da = a.trade_date || '';
+        const db2 = b.trade_date || '';
+        if (da !== db2) return txnSortDesc ? (db2 < da ? -1 : 1) : (da < db2 ? -1 : 1);
+        const ca = a.created_at || '';
+        const cb = b.created_at || '';
+        return txnSortDesc ? (cb < ca ? -1 : 1) : (ca < cb ? -1 : 1);
+      }
+      return txnSortDesc ? vb - va : va - vb;
+    });
+    this.setData({ displayTransactions: sorted });
+  },
+
   /** 切换交易列表折叠/展开 */
   onToggleTxns() {
     this.setData({ txnsExpanded: !this.data.txnsExpanded });
+  },
+
+  /** 收益计算说明弹窗 */
+  onShowPnlHelp() {
+    wx.showModal({
+      title: '收益计算说明',
+      content: [
+        '浮动盈亏 = (现价 × 份额) - 成本金额',
+        '',
+        '已实现盈亏：卖出产生的盈亏（已落袋）',
+        '',
+        '总收益（同花顺口径）',
+        '  = 浮动盈亏 + 已实现盈亏 + 分红 - 手续费',
+        '',
+        '注意：手续费已分别计入买入成本',
+        '和卖出已实现盈亏中，不再重复扣减。',
+      ].join('\n'),
+      showCancel: false,
+      confirmText: '知道了',
+    });
   },
 
   tagClass(type) {

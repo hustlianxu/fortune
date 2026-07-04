@@ -80,12 +80,13 @@
         <text class="tab-name">{{item.name}}</text>
       </view>
     </view>
+    <text class="tab-desc">{{currentTypeDesc}}</text>
   </view>
 
   <!-- 开始分析按钮 -->
   <view class="card">
     <button class="btn-primary" bindtap="onStartAnalysis" disabled="{{!canAnalyze}}">
-      {{analyzing ? '分析中...' : '开始分析：' + currentTypeName}}
+      {{analyzing ? '分析中...' : '开始分析'}}
     </button>
     <text class="btn-hint" wx:if="{{!providerConfigured}}">请先配置 API Key</text>
     <text class="btn-hint" wx:elif="{{!summary.holdings || summary.holdings.length === 0}}">请先录入持仓数据</text>
@@ -327,7 +328,7 @@
     <view class="empty-state">
       <text class="empty-icon">{{currentTypeIcon}}</text>
       <text>暂无「{{currentTypeName}}」研报</text>
-      <text class="empty-hint">点击上方「{{'开始分析：' + currentTypeName}}」按钮生成第一份研报</text>
+      <text class="empty-hint">点击上方「开始分析」按钮生成第一份研报</text>
     </view>
   </view>
 

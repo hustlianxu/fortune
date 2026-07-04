@@ -17,11 +17,33 @@
 .price-row {
   display: flex;
   justify-content: space-between;
+  align-items: stretch;
   margin-bottom: 24rpx;
 }
-.price-item { text-align: center; flex: 1; }
-.price-label { font-size: 22rpx; color: var(--text-tertiary); display: block; }
-.price-value { font-size: 32rpx; font-weight: 700; display: block; margin-top: 4rpx; }
+.price-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100rpx;
+}
+.price-label {
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  display: block;
+  text-align: center;
+  line-height: 1.3;
+}
+.price-value {
+  font-size: 30rpx;
+  font-weight: 700;
+  display: block;
+  margin-top: 6rpx;
+  text-align: center;
+  line-height: 1.3;
+  word-break: break-all;
+}
 
 /* ═══════ 总收益卡（同花顺口径） ═══════ */
 .total-pnl-card {
@@ -221,3 +243,43 @@
 .recent-txn-amount.txn-flat { color: var(--text-secondary); }
 
 .empty-hint { font-size: 24rpx; color: var(--text-tertiary); margin-top: 12rpx; }
+
+/* ═══════ 收益说明 ⓘ 图标 ═══════ */
+.pnl-help-icon {
+  display: inline-block;
+  width: 32rpx;
+  height: 32rpx;
+  line-height: 32rpx;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  background: var(--bg-input);
+  margin-left: 8rpx;
+  vertical-align: middle;
+}
+.pnl-help-icon:active { opacity: 0.6; }
+
+/* ═══════ 交易排序条 ═══════ */
+.txn-sort-bar {
+  display: flex;
+  gap: 12rpx;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid var(--divider-color);
+  margin-bottom: 8rpx;
+}
+.txn-sort-item {
+  padding: 6rpx 16rpx;
+  font-size: 22rpx;
+  color: var(--text-tertiary);
+  background: var(--bg-input);
+  border-radius: 8rpx;
+  border: 2rpx solid transparent;
+}
+.txn-sort-item.active {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  background: var(--primary-soft);
+}
+.txn-sort-item:active { opacity: 0.6; }
+.txn-sort-arrow { font-size: 18rpx; margin-left: 4rpx; }

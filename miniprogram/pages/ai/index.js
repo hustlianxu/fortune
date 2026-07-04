@@ -55,6 +55,7 @@ Page({
     // 动态计算字段（通过 _updateTypeDisplay 更新）
     currentTypeName: '',
     currentTypeIcon: '',
+    currentTypeDesc: '',
   },
 
   onShow() {
@@ -134,12 +135,13 @@ Page({
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
   },
 
-  /** 更新当前 Tab 名称与图标（同步 selectedType → currentTypeName/Icon） */
+  /** 更新当前 Tab 名称、图标与描述 */
   _updateTypeDisplay() {
     const t = ANALYSIS_TYPES.find(a => a.key === this.data.selectedType);
     this.setData({
       currentTypeName: t ? t.name : '',
       currentTypeIcon: t ? t.icon : '📊',
+      currentTypeDesc: t ? t.description : '',
     });
   },
 

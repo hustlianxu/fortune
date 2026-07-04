@@ -142,6 +142,14 @@
 
 /* ═══════ 分析类型 Tab ═══════ */
 .analysis-tab-card { padding-bottom: 0; }
+.tab-desc {
+  display: block;
+  font-size: 24rpx;
+  color: var(--text-tertiary);
+  margin-top: 16rpx;
+  text-align: center;
+  line-height: 1.4;
+}
 .analysis-tabs {
   display: flex;
   background: var(--bg-input);

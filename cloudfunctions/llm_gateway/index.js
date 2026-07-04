@@ -572,7 +572,7 @@ exports.main = async (event) => {
       // 单分析师超时设为 25s（并行 + 汇总 25s ≈ 50s，留 10s 给 DB 收尾，确保 < 60s 云函数上限，
       // 避免 wx.cloud.callFunction 出现 -404010 result expired 错误）。
       const subReports = await Promise.all(
-        analystList.map(ap => callAnalystSafely(ap, userConfig.providers[ap], messages, 25 * 1000))
+        analystList.map(ap => callAnalystSafely(ap, userConfig.providers[ap], messages, 40 * 1000))
       );
 
       const successCount = subReports.filter(r => r.content).length;
@@ -617,7 +617,7 @@ exports.main = async (event) => {
         const synthR = await callAnalystSafely(synthProvider, synthCfg, [
           { role: 'system', content: '你是一位首席投资顾问，擅长综合多方观点给出最终结论。使用中文回复。' },
           { role: 'user', content: buildSynthesisPrompt(analysisType, subReports) },
-        ], 25 * 1000);
+        ], 15 * 1000);
         if (synthR.content) {
           finalContent = synthR.content;
           usedSynth = true;

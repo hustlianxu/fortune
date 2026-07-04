@@ -30,11 +30,14 @@
     <!-- 总收益（同花顺口径） -->
     <view class="total-pnl-card {{fmt.pnlClass(holding.total_pnl)}}">
       <view class="total-pnl-row">
-        <text class="total-pnl-label">总收益</text>
+        <text class="total-pnl-label">
+          总收益
+          <text class="pnl-help-icon" bindtap="onShowPnlHelp">ⓘ</text>
+        </text>
         <text class="total-pnl-value">{{fmt.pnlSign(holding.total_pnl)}}{{fmt.formatMoney(holding.total_pnl)}}</text>
       </view>
       <text class="total-pnl-pct">收益率 {{fmt.formatPercent(holding.total_pnl_percent)}}</text>
-      <text class="total-pnl-hint">总收益 = 浮动 + 已实现 + 分红（手续费已计入成本与已实现）</text>
+      <text class="total-pnl-hint">总收益 = 浮动盈亏 + 已实现盈亏 + 分红 - 手续费</text>
     </view>
 
     <!-- 收益分项明细 -->
@@ -107,6 +110,17 @@
     <view class="section-title txns-header" bindtap="onToggleTxns" data-expanded="{{txnsExpanded}}">
       <text>全部交易（{{transactions.length}}）</text>
       <text class="txns-toggle">{{txnsExpanded ? '收起 ▲' : '展开 ▼'}}</text>
+    </view>
+    <!-- 交易排序 -->
+    <view class="txn-sort-bar" wx:if="{{txnsExpanded}}">
+      <view
+        class="txn-sort-item {{txnSortBy === item.key ? 'active' : ''}}"
+        wx:for="{{txnSortOptions}}" wx:key="key"
+        bindtap="onTxnSort" data-key="{{item.key}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="txn-sort-arrow" wx:if="{{txnSortBy === item.key}}">{{txnSortDesc ? '▼' : '▲'}}</text>
+      </view>
     </view>
     <view
       class="recent-txn"
