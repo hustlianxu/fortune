@@ -112,18 +112,18 @@ Page({
 
   onRebuildHoldings() {
     wx.showModal({
-      title: '重建持仓',
-      content: '将根据全部交易流水重新计算持仓份额与成本（幂等，可重复执行）。是否继续？',
+      title: '重建全部持仓',
+      content: '将根据全部交易流水重新计算所有持仓的份额与成本（幂等，可重复执行）。\n\n修复场景：因历史 bug 导致持仓数据异常（如打新中签/红股入账未被正确计入）。',
       success: async (res) => {
         if (!res.confirm) return;
-        wx.showLoading({ title: '重建中...' });
+        wx.showLoading({ title: '全量重建中（产品较多可能较慢）...', mask: true });
         try {
-          const r = await wx.cloud.callFunction({ name: 'rebuild_holdings' });
+          const r = await wx.cloud.callFunction({ name: 'rebuild_all_holdings' });
           const result = r.result || {};
           wx.hideLoading();
           if (result.success) {
             wx.showModal({
-              title: '重建完成',
+              title: '全量重建完成',
               content: result.message || '已完成',
               showCancel: false,
             });

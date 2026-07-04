@@ -95,6 +95,13 @@ async function recalcCashBalance(accountId) {
 }
 
 /**
+ * 全量重建所有持仓（遍历交易记录重新回放）
+ */
+async function rebuildAllHoldings() {
+  return callCloudFunction(CLOUD_FUNCTIONS.REBUILD_ALL_HOLDINGS);
+}
+
+/**
  * 获取 AI 分析报告所需的 prompt + API Key（前端直调 LLM，绕过云函数 60s 限制）
  * @param {string} type - 分析类型
  * @param {string} provider - 模型提供商
@@ -389,6 +396,7 @@ module.exports = {
   parseTradesByText,
   inferIndustry,
   recalcCashBalance,
+  rebuildAllHoldings,
   prepareAnalysis,
   saveAIReport,
 };

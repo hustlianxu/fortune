@@ -150,6 +150,7 @@ const CLOUD_FUNCTIONS = {
   DELETE_HOLDING: 'delete_holding',
   SAVE_AI_REPORT: 'save_ai_report',
   RECALC_CASH_BALANCE: 'recalc_cash_balance',
+  REBUILD_ALL_HOLDINGS: 'rebuild_all_holdings',
 };
 
 module.exports = {

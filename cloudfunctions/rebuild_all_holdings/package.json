@@ -1,0 +1,9 @@
+{
+  "name": "rebuild_all_holdings",
+  "version": "1.0.0",
+  "description": "全量重建所有持仓（遍历交易记录）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
