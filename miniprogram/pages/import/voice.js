@@ -57,10 +57,16 @@ Page({
       const res = await db.collection('accounts').orderBy('sort_order', 'asc').get();
       const accounts = res.data || [];
       const accountNames = accounts.map(a => a.name || '未命名');
+      // 恢复上次选择的账户
+      let savedIdx = 0;
+      try {
+        const saved = wx.getStorageSync('voice_last_account_idx');
+        if (saved !== undefined && saved !== null && accounts[saved]) savedIdx = saved;
+      } catch (e) {}
       this.setData({
         accounts,
         accountNames,
-        accountIndex: accounts.length > 0 ? 0 : -1,
+        accountIndex: accounts.length > 0 ? savedIdx : -1,
       });
     } catch (err) {
       console.error('[voice] load accounts error:', err);
@@ -72,7 +78,9 @@ Page({
   },
 
   onAccountChange(e) {
-    this.setData({ accountIndex: parseInt(e.detail.value, 10) });
+    const idx = parseInt(e.detail.value, 10);
+    this.setData({ accountIndex: idx });
+    try { wx.setStorageSync('voice_last_account_idx', idx); } catch (e) {}
   },
 
   onTextInput(e) {
