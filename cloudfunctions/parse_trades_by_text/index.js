@@ -75,19 +75,23 @@ function buildParsePrompt(text) {
 1. 日期格式统一为 YYYY-MM-DD，年份缺失时用当前年份 ${year}
 2. 金额"36块5""36.5""36元5"都解析为 36.50
 3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
-4. 产品代码缺失时填空字符串，产品名称尽量保留原文
+4. 产品代码和产品名称至少填一个；如果用户只给了产品名称（如"招商银行""贵州茅台"），你可以凭知识补全其 A 股代码（如 600036、600519）；如果用户只给了代码，自动补全产品名称。两者都尽量填写完整
 5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
 6. 分红/利息类交易 shares 和 price 填 0，amount 填实际金额
 7. buy/sell 的 amount = shares × price（不含手续费），amount 永远为正数
 8. 卖出（sell）也用正数金额，系统靠 type 字段区分买入/卖出，不是靠金额正负
-9. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
+9. product_type 字段：根据产品代码自动推断，填写以下枚举值之一——stock(A股股票) / etf(场内ETF) / lof(场内LOF) / reit(REITs) / hk_stock(港股) / us_stock(美股) / fund_stock(股票型基金) / fund_mix(混合型基金) / fund_bond(债券型基金) / fund_index(指数型基金) / fund_money(货币型基金)。如果无法推断则填空字符串
+10. exchange 字段：根据产品代码填入 SH(沪市) / SZ(深市) / HK(港股) / US(美股)；无法判断则填空字符串
+11. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
 
 输出格式（严格遵循）：
 [
   {
     "type": "buy",
     "product_name": "招商银行",
-    "product_code": "",
+    "product_code": "600036",
+    "product_type": "stock",
+    "exchange": "SH",
     "shares": 1000,
     "price": 36.50,
     "fee": 5,
@@ -357,8 +361,55 @@ async function postProcessTrades(trades, account_id, warnings) {
 
   const accountHasRates = hasFeeRates(account);
 
+  // 构建名称→持仓映射，用于语音输入时通过产品名称匹配代码
+  const nameToHolding = {};
+  if (account) {
+    try {
+      const { data: allTxns } = await db.collection('transactions')
+        .where({ account_id })
+        .limit(200)
+        .get();
+      // 合并 holdings + transactions 中的产品名称
+      const allProducts = {};
+      Object.values(holdingsMap).forEach(h => {
+        if (h.product_code) allProducts[h.product_code.toUpperCase()] = h;
+      });
+      (allTxns || []).forEach(t => {
+        if (t.product_code) {
+          const key = t.product_code.toUpperCase();
+          if (!allProducts[key]) allProducts[key] = t;
+        }
+      });
+      // 按名称索引
+      Object.values(allProducts).forEach(p => {
+        const name = (p.product_name || '').trim();
+        if (name) {
+          if (!nameToHolding[name]) nameToHolding[name] = [];
+          nameToHolding[name].push(p);
+        }
+      });
+    } catch (e) {}
+  }
+
   return trades.map(t => {
-    // 用持仓补全 product_type / exchange（语音输入通常不带这些字段）
+    // 1. 产品名称 → 代码匹配（LLM 可能只给了名称没给代码）
+    if (!t.product_code && t.product_name) {
+      const name = t.product_name.trim();
+      const matches = nameToHolding[name];
+      if (matches && matches.length === 1) {
+        const m = matches[0];
+        t.product_code = m.product_code || '';
+        if (!t.product_type) t.product_type = m.product_type || '';
+        if (!t.exchange) t.exchange = m.exchange || '';
+        warnings.push(`「${name}」自动匹配到代码：${t.product_code}`);
+      } else if (matches && matches.length > 1) {
+        // 多个匹配 → 提示用户手动选择
+        const codes = matches.map(m => m.product_code).join('、');
+        warnings.push(`「${name}」匹配到多个代码（${codes}），请在编辑页确认产品代码`);
+      }
+    }
+
+    // 2. 用持仓数据补全 product_type / exchange
     if ((!t.product_type || !t.exchange) && t.product_code) {
       const h = holdingsMap[t.product_code.toUpperCase()];
       if (h) {
@@ -366,14 +417,29 @@ async function postProcessTrades(trades, account_id, warnings) {
         if (!t.exchange) t.exchange = h.exchange || '';
       }
     }
-    // 没有持仓兜底时，按代码前缀粗略推断交易所
-    if (!t.exchange && t.product_code) {
-      const code = t.product_code;
-      if (/^(60[0-9]|68[0-9]|51[0-9]|50[0-9])/.test(code)) t.exchange = 'SH';
-      else if (/^(00[0-9]|30[0-9]|15[0-9]|16[0-9])/.test(code)) t.exchange = 'SZ';
+
+    // 3. 没有持仓兜底时，按代码前缀推断 product_type + exchange
+    if (t.product_code) {
+      const code = String(t.product_code).trim().toUpperCase();
+      if (!t.exchange) {
+        if (/^6[08]/.test(code) || /^5[0128]/.test(code)) t.exchange = 'SH';
+        else if (/^0[03]/.test(code) || /^1[568]/.test(code)) t.exchange = 'SZ';
+        else if (/^\d{5}$/.test(code)) t.exchange = 'HK';
+        else if (/^[A-Z]/.test(code)) t.exchange = 'US';
+      }
+      if (!t.product_type) {
+        if (/^5[0126]/.test(code) || /^15/.test(code) || /^588/.test(code)) t.product_type = 'etf';
+        else if (/^16/.test(code)) t.product_type = 'lof';
+        else if (/^58/.test(code) || /^18/.test(code) || /^508/.test(code)) t.product_type = 'reit';
+        else if (/^6[08]/.test(code) || /^0[03]/.test(code)) t.product_type = 'stock';
+        else if (/^\d{5}$/.test(code)) t.product_type = 'hk_stock';
+        else if (/^[A-Z]/.test(code)) t.product_type = 'us_stock';
+        else if (account && account.type === 'fund_platform') t.product_type = 'fund_mix';
+        else t.product_type = 'stock';
+      }
     }
 
-    // fee 缺失 → 按账户费率自动算
+    // 4. fee 缺失 → 按账户费率自动算
     if ((t.type === 'buy' || t.type === 'sell') && Number(t.fee) === 0 && accountHasRates) {
       const autoFee = calcTradeFee(account, t);
       if (autoFee > 0) {
@@ -614,14 +680,21 @@ exports.main = async (event) => {
     trades.forEach(t => { typeCounts[t.type] = (typeCounts[t.type] || 0) + 1; });
     console.log('[parse_trades] about to write', trades.length, 'trades, types:', JSON.stringify(typeCounts));
 
+    // 将买入交易按日期正序排列，确保最早买入被正确标记为 is_opening（建仓）
+    const sortedTrades = [...trades].sort((a, b) => {
+      const da = a.trade_date || '';
+      const db = b.trade_date || '';
+      return da < db ? -1 : (da > db ? 1 : 0);
+    });
+
     let imported = 0;
     const affectedProducts = new Set();  // 收集受影响的 product_code，用于批量 rebuild
-    for (let i = 0; i < trades.length; i++) {
+    for (let i = 0; i < sortedTrades.length; i++) {
       try {
-        await importTrade(trades[i], account_id, warnings, request_id, openid);
+        await importTrade(sortedTrades[i], account_id, warnings, request_id, openid);
         imported++;
-        if (trades[i].product_code && HOLDING_AFFECTING.indexOf(trades[i].type) >= 0) {
-          affectedProducts.add(trades[i].product_code);
+        if (sortedTrades[i].product_code && HOLDING_AFFECTING.indexOf(sortedTrades[i].type) >= 0) {
+          affectedProducts.add(sortedTrades[i].product_code);
         }
       } catch (err) {
         warnings.push(`第 ${i + 1} 笔写入失败：${err.message}`);

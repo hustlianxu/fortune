@@ -333,6 +333,43 @@ exports.main = async (event) => {
       }
     }
 
+    // 6. 修复 is_opening：每个(account_id, product_code)下最早的买入标记为建仓，其余取消
+    //    解决批量导入时"最后一次买入被标记为建仓"的问题
+    try {
+      const buyTxns = txns.filter(t => t.type === 'buy');
+      const buyByProduct = {};
+      buyTxns.forEach(t => {
+        const key = (t.account_id || '') + '|' + (t.product_code || '');
+        if (!buyByProduct[key]) buyByProduct[key] = [];
+        buyByProduct[key].push(t);
+      });
+      for (const key of Object.keys(buyByProduct)) {
+        const buys = buyByProduct[key].sort((a, b) => {
+          const da = a.trade_date || '';
+          const db = b.trade_date || '';
+          if (da !== db) return da < db ? -1 : 1;
+          const ca = a.created_at || '';
+          const cb = b.created_at || '';
+          return ca < cb ? -1 : (ca > cb ? 1 : 0);
+        });
+        // 最早的买入标记为建仓，其余取消
+        for (let i = 0; i < buys.length; i++) {
+          const shouldBeOpening = i === 0;
+          if (!!buys[i].is_opening !== shouldBeOpening) {
+            try {
+              await db.collection('transactions').doc(buys[i]._id).update({
+                data: { is_opening: shouldBeOpening, updated_at: db.serverDate() },
+              });
+            } catch (e) {
+              console.warn('[rebuild] fix is_opening failed for', buys[i]._id, e);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[rebuild] is_opening fix error:', e);
+    }
+
     return {
       success: true,
       message: `重建完成：${rebuilt} 个持仓，${cleared} 个已清仓，清理重复持仓 ${deduped} 个，标记 ${marked} 笔交易`,
