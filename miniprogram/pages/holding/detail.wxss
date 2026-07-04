@@ -32,7 +32,6 @@
   display: block;
   text-align: center;
   line-height: 1.4;
-  height: 30rpx;
 }
 .price-value {
   font-size: 30rpx;
@@ -40,9 +39,7 @@
   display: block;
   margin-top: 8rpx;
   text-align: center;
-  line-height: 1.4;
-  height: 42rpx;
-  overflow: hidden;
+  line-height: 1.3;
 }
 
 /* ═══════ 总收益卡（同花顺口径） ═══════ */
