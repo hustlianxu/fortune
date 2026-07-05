@@ -69,48 +69,20 @@ const PROVIDERS = {
  */
 function buildParsePrompt(text) {
   const year = new Date().getFullYear();
-  return `你是一个金融交易记录解析助手。请把用户输入的自然语言交易描述解析成结构化 JSON。
+  return `解析自然语言交易为JSON数组。规则：
+1.日期YYYY-MM-DD，缺年份用${year}；"36块5"=36.50
+2.type: buy(买入)/sell(卖出)/dividend(现金分红)/stock_dividend(红利再投/红股入账)/ipo_win(打新中签)/transfer_in(转入)/transfer_out(转出)/fee(手续费)/interest(利息)
+3.产品代码和名称至少填一个，尽量都补全（A股6位、港股5位、美股字母开头）。已知常见代码：招商银行600036、茅台600519、宁德时代300750、比亚迪002594、上证50ETF510050、沪深300ETF510300、科创50ETF588000、汇添富均衡增长519018
+4.场内产品(股票/ETF/LOF/REITs)：price=成交单价；场外产品(基金如fund_stock/fund_mix)：price=单位净值。由product_type区分
+5.fee: 用户未提到填0（系统自动计算）；buy/sell的amount=shares×price(正数不含fee)；卖出也用正数，靠type字段区分
+6.现金分红: type=dividend, shares/price=0, amount=现金金额；红利再投: type=stock_dividend, shares=红股数, amount=0, price=单价或0
+7.product_type(必填)：stock(A股)/etf(场内ETF)/lof(LOF)/reit(REITs)/hk_stock(港股)/us_stock(美股)/fund_stock(股票型基金)/fund_mix(混合型)/fund_bond(债券型)/fund_index(指数型)/fund_money(货币型)
+  — 5/51/15/56开头或名含"ETF"→etf；名含"LOF"→lof；名含"混合""增长""优选"等+非5/51/15/56开头→相应基金
+8.exchange：SH(60/50/51/52/58/68开头)、SZ(00/30/15/16/18开头)、HK(5位数字)、US(字母开头)
+9.只输出JSON数组，无解释无markdown标记
 
-规则：
-1. 日期格式统一为 YYYY-MM-DD，年份缺失时用当前年份 ${year}
-2. 金额"36块5""36.5""36元5"都解析为 36.50
-3. type 只能是：buy(买入) / sell(卖出) / dividend(分红) / stock_dividend(红股入账/红利再投) / ipo_win(打新中签) / transfer_in(转入) / transfer_out(转出) / fee(手续费) / interest(利息)
-4. 产品代码和产品名称至少填一个，尽量都填完整。对照以下规则：
-   - 用户给产品名称（如"招商银行"），你凭 A 股知识补全代码如 600036；
-   - 用户给代码（如"600036"），你补全产品名称如"招商银行"；
-   - 用户给基金名称（如"汇添富均衡增长""中欧医疗健康混合"），凭知识补全代码（6 位数字）或反之。
-   - 常见股票代码：贵州茅台 600519, 中国平安 601318, 招商银行 600036, 兴业银行 601166, 五粮液 000858, 宁德时代 300750, 药明康德 603259, 美的集团 000333, 比亚迪 002594, 东方财富 300059
-   - 常见基金代码：汇添富均衡增长 519018, 中欧医疗健康 003095, 易方达蓝筹精选 005827, 景顺长城新兴成长 260108, 兴全合润 163406
-   - 场内 ETF 常见代码：上证50ETF 510050, 沪深300ETF 510300, 中证500ETF 510500, 创业板ETF 159915, 科创50ETF 588000, 证券ETF 512880, 半导体ETF 512480
-5. 手续费：用户明确提到时填入 fee 字段（单位：元）；未提到则填 0（系统会按账户费率自动计算，无需估算）
-6. 分红/利息类交易：现金分红 type=dividend，shares 和 price 填 0，amount 填现金金额（元）；红利再投（以股代息）type=stock_dividend，amount 填 0，shares 填红股数量，price 填每股单价或0
-7. buy/sell 的 amount = shares × price（不含手续费），amount 永远为正数
-8. 卖出（sell）也用正数金额，系统靠 type 字段区分买入/卖出，不是靠金额正负
-9. product_type 字段（必须填写）：根据产品代码/名称推断，枚举值如下——
-   stock(A股股票), etf(场内ETF), lof(场内LOF), reit(REITs), hk_stock(港股), us_stock(美股),
-   fund_stock(股票型基金), fund_mix(混合型基金), fund_bond(债券型基金), fund_index(指数型基金), fund_money(货币型基金)
-   判断依据：6位数字以 5/51/15/56 开头 + 产品名含"ETF"→etf；产品名含"LOF"→lof；
-   6位数字且产品名含"混合""增长""优选""精选""蓝筹"等→相应的基金类型；
-   6位数字股票→stock；5位数字→hk_stock；字母开头→us_stock
-10. exchange 字段：根据产品代码填入 SH(沪市,60/50/51/52/58/68开头) / SZ(深市,00/30/15/16/18开头) / HK(港股,5位数字) / US(美股,字母开头)
-11. 只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块标记
-
-输出格式（严格遵循）：
-[
-  {
-    "type": "buy",
-    "product_name": "招商银行",
-    "product_code": "600036",
-    "product_type": "stock",
-    "exchange": "SH",
-    "shares": 1000,
-    "price": 36.50,
-    "fee": 5,
-    "amount": 36500,
-    "trade_date": "${year}-03-15",
-    "note": ""
-  }
-]
+严格按此格式：
+[{"type":"buy","product_name":"招商银行","product_code":"600036","product_type":"stock","exchange":"SH","shares":1000,"price":36.50,"fee":5,"amount":36500,"trade_date":"${year}-03-15","note":""}]
 
 用户输入：
 ${text}`;
