@@ -68,9 +68,10 @@ exports.main = async (event) => {
       netCashFlow += cashFlow(t.type, t.amount, t.fee);
     }
 
-    // 4. 取 cash_balance_base（兼容旧数据：无此字段则用当前 cash_balance 作为 base）
+    // 4. 取 cash_balance_base + cash_balance_adjustment（用户校正）
     const base = typeof account.cash_balance_base === 'number' ? account.cash_balance_base : (Number(account.cash_balance) || 0);
-    const newBalance = base + netCashFlow;
+    const adjustment = typeof account.cash_balance_adjustment === 'number' ? account.cash_balance_adjustment : 0;
+    const newBalance = base + netCashFlow + adjustment;
 
     // 5. 更新账户
     await db.collection('accounts').doc(account_id).update({

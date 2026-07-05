@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <!-- 添加/编辑账户 -->
 <view class="page">
   <view class="card">
@@ -56,8 +57,18 @@
 
     <view class="form-group">
       <text class="form-label">初始余额（交易自动调整）</text>
-      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance}}" bindinput="onCashBalanceInput" />
-      <text class="form-hint">买入/卖出/转账等交易将自动增减此余额</text>
+      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance_base}}" bindinput="onCashBalanceBaseInput" />
+      <text class="form-hint">买入/卖出/转账等交易将基于此值自动增减</text>
+    </view>
+    <view class="form-group" wx:if="{{isEdit}}">
+      <text class="form-label">当前余额校正</text>
+      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance_adjustment}}" bindinput="onCashBalanceAdjInput" />
+      <text class="form-hint">自动计算结果与实际有偏差时，在此填入差额校正。最终余额 = 初始余额 + 交易净现金流 + 校正值</text>
+    </view>
+    <view class="form-group" wx:if="{{isEdit}}">
+      <text class="form-label">自动计算余额</text>
+      <text class="input-field readonly-field">{{fmt.formatMoney(computedBalance)}}</text>
+      <text class="form-hint">根据交易记录自动算出的余额（含校正），仅供参考</text>
     </view>
 
     <view class="form-group">

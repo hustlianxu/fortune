@@ -82,8 +82,14 @@ Page({
       if (options.current_shares) {
         patch.currentShares = decodeURIComponent(options.current_shares);
       }
-      // 从持仓详情进入时，默认选中「买入」
-      if (options.from === 'holding' && options.product_code) {
+      // 从 URL 指定交易类型（如银证转入/转出从账户详情页跳转）
+      if (options.type && typeKeys.indexOf(options.type) >= 0) {
+        const tIdx = typeKeys.indexOf(options.type);
+        patch.typeIndex = tIdx;
+        patch['form.type'] = options.type;
+      }
+      // 从持仓详情进入时，默认选中「买入」（仅当未指定 type）
+      if (options.from === 'holding' && options.product_code && !options.type) {
         const buyIdx = typeKeys.indexOf('buy');
         if (buyIdx >= 0) {
           patch.typeIndex = buyIdx;
