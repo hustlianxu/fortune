@@ -69,20 +69,33 @@ const PROVIDERS = {
  */
 function buildParsePrompt(text) {
   const year = new Date().getFullYear();
-  return `解析自然语言交易为JSON数组。规则：
-1.日期YYYY-MM-DD，缺年份用${year}；"36块5"=36.50
-2.type: buy(买入)/sell(卖出)/dividend(现金分红)/stock_dividend(红利再投/红股入账)/ipo_win(打新中签)/transfer_in(转入)/transfer_out(转出)/fee(手续费)/interest(利息)
-3.产品代码和名称至少填一个，尽量都补全（A股6位、港股5位、美股字母开头）。已知常见代码：招商银行600036、茅台600519、宁德时代300750、比亚迪002594、上证50ETF510050、沪深300ETF510300、科创50ETF588000、汇添富均衡增长519018
-4.场内产品(股票/ETF/LOF/REITs)：price=成交单价；场外产品(基金如fund_stock/fund_mix)：price=单位净值。由product_type区分
-5.fee: 用户未提到填0（系统自动计算）；buy/sell的amount=shares×price(正数不含fee)；卖出也用正数，靠type字段区分
-6.现金分红: type=dividend, shares/price=0, amount=现金金额；红利再投: type=stock_dividend, shares=红股数, amount=0, price=单价或0
-7.product_type(必填)：stock(A股)/etf(场内ETF)/lof(LOF)/reit(REITs)/hk_stock(港股)/us_stock(美股)/fund_stock(股票型基金)/fund_mix(混合型)/fund_bond(债券型)/fund_index(指数型)/fund_money(货币型)
-  — 5/51/15/56开头或名含"ETF"→etf；名含"LOF"→lof；名含"混合""增长""优选"等+非5/51/15/56开头→相应基金
-8.exchange：SH(60/50/51/52/58/68开头)、SZ(00/30/15/16/18开头)、HK(5位数字)、US(字母开头)
-9.只输出JSON数组，无解释无markdown标记
+  return `请将用户的交易描述解析为 JSON 数组，严格按以下格式输出（不要 markdown 标记，不要额外文字）：
 
-严格按此格式：
-[{"type":"buy","product_name":"招商银行","product_code":"600036","product_type":"stock","exchange":"SH","shares":1000,"price":36.50,"fee":5,"amount":36500,"trade_date":"${year}-03-15","note":""}]
+[
+  {
+    "type": "buy",
+    "product_name": "招商银行",
+    "product_code": "600036",
+    "product_type": "stock",
+    "exchange": "SH",
+    "shares": 1000,
+    "price": 36.50,
+    "fee": 5,
+    "amount": 36500,
+    "trade_date": "${year}-03-15",
+    "note": ""
+  }
+]
+
+字段说明：
+- type: buy(买入)/sell(卖出)/dividend(现金分红)/stock_dividend(红利再投)/ipo_win(打新中签)/transfer_in(转入)/transfer_out(转出)/fee(手续费)/interest(利息)
+- product_code+product_name 至少填一个，尽量都补全。你凭 A 股/基金知识根据名称或代码互相推导
+- product_type 根据代码推断：stock(股票)/etf(场内ETF)/lof(LOF)/reit(REITs)/hk_stock(港股)/us_stock(美股)/fund_stock/fund_mix/fund_bond/fund_index/fund_money(场外基金)
+  — 场内产品(股票/ETF/LOF)：price=成交单价；场外产品(基金)：price=单位净值(NAV)
+- amount = shares × price，永远正数，不含 fee；卖出也用正数，靠 type='sell' 区分
+- fee: 用户未提则填0；现金分红 type=dividend, shares=0, amount=现金金额；红利再投 type=stock_dividend, shares=红股数, amount=0
+- trade_date: YYYY-MM-DD，年份缺省用${year}
+- 数字不要用引号包裹
 
 用户输入：
 ${text}`;
