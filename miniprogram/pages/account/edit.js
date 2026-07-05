@@ -14,8 +14,6 @@ Page({
       platform: '',
       cash_balance_base: '',
       cash_balance_adjustment: '',
-    },
-    computedBalance: 0,
       note: '',
       // 证券账户专属字段
       customer_no: '',
@@ -49,6 +47,7 @@ Page({
       custodian_fee_rate: '',        // 托管费（年化）
       advisory_fee_rate: '',         // 投顾费（年化，可选）
     },
+    computedBalance: 0,
     typeIndex: 0,
     typeOptions: [],
     platformIndex: 0,
