@@ -12,8 +12,7 @@ Page({
       name: '',
       type: 'stock',
       platform: '',
-      cash_balance_base: '',
-      cash_balance_adjustment: '',
+      cash_balance: '',
       note: '',
       // 证券账户专属字段
       customer_no: '',
@@ -83,8 +82,7 @@ Page({
           name: account.name || '',
           type: account.type || 'stock',
           platform: account.platform || '',
-          cash_balance_base: String(account.cash_balance_base != null ? account.cash_balance_base : (account.cash_balance || '')),
-          cash_balance_adjustment: String(account.cash_balance_adjustment || ''),
+          cash_balance: String(account.cash_balance || ''),
           note: account.note || '',
           customer_no: account.customer_no || '',
           broker_password: account.broker_password || '',
@@ -116,7 +114,7 @@ Page({
           custodian_fee_rate: account.custodian_fee_rate != null ? String(account.custodian_fee_rate) : '',
           advisory_fee_rate: account.advisory_fee_rate != null ? String(account.advisory_fee_rate) : '',
         },
-        computedBalance: Number(account.cash_balance || 0),
+        computedBalance: account.cash_balance_calculated != null ? Number(account.cash_balance_calculated) : Number(account.cash_balance || 0),
       });
       this.updatePlatforms(typeIdx, account.platform);
     } catch (err) {
@@ -157,12 +155,8 @@ Page({
     this.setData({ 'form.name': e.detail.value });
   },
 
-  onCashBalanceBaseInput(e) {
-    this.setData({ 'form.cash_balance_base': e.detail.value });
-  },
-
-  onCashBalanceAdjInput(e) {
-    this.setData({ 'form.cash_balance_adjustment': e.detail.value });
+  onCashBalanceInput(e) {
+    this.setData({ 'form.cash_balance': e.detail.value });
   },
 
   onNoteInput(e) {
@@ -244,8 +238,7 @@ Page({
         name: f.name,
         type: f.type,
         platform: f.platform,
-        cash_balance_base: parseFloat(f.cash_balance_base) || 0,
-        cash_balance_adjustment: parseFloat(f.cash_balance_adjustment) || 0,
+        cash_balance: parseFloat(f.cash_balance) || 0,
         note: f.note,
         // 账户类型专属字段
         customer_no: f.customer_no || '',

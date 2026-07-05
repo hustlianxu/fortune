@@ -56,19 +56,15 @@
     </view>
 
     <view class="form-group">
-      <text class="form-label">初始余额（交易自动调整）</text>
-      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance_base}}" bindinput="onCashBalanceBaseInput" />
-      <text class="form-hint">买入/卖出/转账等交易将基于此值自动增减</text>
+      <text class="form-label">当前余额</text>
+      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance}}" bindinput="onCashBalanceInput" />
+      <text class="form-hint" wx:if="{{!isEdit}}">新建账户时填入初始余额，后续交易将自动增减</text>
+      <text class="form-hint" wx:else>直接输入账户当前实际余额，不会因交易重算被覆盖</text>
     </view>
-    <view class="form-group" wx:if="{{isEdit}}">
-      <text class="form-label">当前余额校正</text>
-      <input class="input-field" placeholder="0.00" type="digit" value="{{form.cash_balance_adjustment}}" bindinput="onCashBalanceAdjInput" />
-      <text class="form-hint">自动计算结果与实际有偏差时，在此填入差额校正。最终余额 = 初始余额 + 交易净现金流 + 校正值</text>
-    </view>
-    <view class="form-group" wx:if="{{isEdit}}">
-      <text class="form-label">自动计算余额</text>
-      <text class="input-field readonly-field">{{fmt.formatMoney(computedBalance)}}</text>
-      <text class="form-hint">根据交易记录自动算出的余额（含校正），仅供参考</text>
+    <view class="form-group" wx:if="{{isEdit && computedBalance != null}}">
+      <text class="form-label">系统参考值</text>
+      <text class="input-field" style="background:var(--bg-input);padding:24rpx;border-radius:var(--radius-sm);color:var(--text-tertiary);font-size:28rpx;">{{fmt.formatMoney(computedBalance)}}</text>
+      <text class="form-hint">根据交易流水自动计算的结果，仅供参考。以你填写的「当前余额」为准</text>
     </view>
 
     <view class="form-group">

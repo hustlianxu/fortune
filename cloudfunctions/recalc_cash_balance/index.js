@@ -68,23 +68,29 @@ exports.main = async (event) => {
       netCashFlow += cashFlow(t.type, t.amount, t.fee);
     }
 
-    // 4. 取 cash_balance_base + cash_balance_adjustment（用户校正）
-    const base = typeof account.cash_balance_base === 'number' ? account.cash_balance_base : (Number(account.cash_balance) || 0);
-    const adjustment = typeof account.cash_balance_adjustment === 'number' ? account.cash_balance_adjustment : 0;
-    const newBalance = base + netCashFlow + adjustment;
+    // 4. 计算系统参考值（基于交易流水）
+    const oldBalance = Number(account.cash_balance) || 0;
+    const calculatedBalance = Number((oldBalance + netCashFlow).toFixed(2));
 
-    // 5. 更新账户
-    await db.collection('accounts').doc(account_id).update({
-      data: {
-        cash_balance_base: base,
-        cash_balance: Number(newBalance.toFixed(2)),
-        cash_flow: Number(netCashFlow.toFixed(2)),
-        updated_at: db.serverDate(),
-      },
-    });
+    // 5. 更新账户：始终更新 cash_flow 和 cash_balance_calculated（系统参考值），
+    //    cash_balance 仅在用户未手动设置过时更新（兼容旧数据）。
+    //    用户手动编辑过的 cash_balance 以页面保存为准，不会被重算覆盖。
+    const updateData = {
+      cash_flow: Number(netCashFlow.toFixed(2)),
+      cash_balance_calculated: calculatedBalance,
+      updated_at: db.serverDate(),
+    };
+
+    // 旧数据兼容：如果 cash_balance 为 0 且从未有过 calculated 值，用计算值初始化
+    if (account.cash_balance_calculated === undefined) {
+      updateData.cash_balance = oldBalance;
+    }
+
+    await db.collection('accounts').doc(account_id).update({ data: updateData });
 
     console.log('[recalc_cash_balance]', account_id,
-      'base=' + base, 'flow=' + netCashFlow.toFixed(2), 'balance=' + newBalance.toFixed(2));
+      'old_balance=' + oldBalance, 'flow=' + netCashFlow.toFixed(2),
+      'calculated=' + calculatedBalance);
 
     return {
       success: true,
