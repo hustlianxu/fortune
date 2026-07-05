@@ -69,8 +69,45 @@ const PROVIDERS = {
  */
 function buildParsePrompt(text) {
   const year = new Date().getFullYear();
-  return `请将用户的交易描述解析为 JSON 数组，严格按以下格式输出（不要 markdown 标记，不要额外文字）：
+  return `你是一个金融交易解析助手。请将用户的交易描述解析为 JSON 数组，严格按以下规则输出。
 
+输出必须是合法的 JSON 数组，不要 markdown 代码块标记，不要额外文字。
+
+=== 支持的类型 ===
+buy(买入) / sell(卖出) / dividend(现金分红) / stock_dividend(红利再投/红股入账) / ipo_win(打新中签) / split(拆分/合并) / transfer_in(银证转入) / transfer_out(银证转出) / fee(手续费) / interest(利息)
+
+=== 字段规则 ===
+
+1. type — 必填，从上方类型中选择
+
+2. product_code + product_name — 至少填一个，尽量都填完整
+   - 用户给名称（如"招商银行"），补全代码 600036
+   - 用户给代码（如"600036"），补全名称"招商银行"
+   - A 股 6 位数字、港股 5 位数字、美股字母开头、基金 6 位数字
+   - 常见参考：茅台600519、宁德时代300750、比亚迪002594、上证50ETF 510050、沪深300ETF 510300、科创50ETF 588000、汇添富均衡增长 519018
+
+3. product_type — 必填，根据代码/名称推断，枚举值：
+   stock(A股股票) / etf(场内ETF) / lof(场内LOF) / reit(REITs) / hk_stock(港股) / us_stock(美股)
+   fund_stock(股票型基金) / fund_mix(混合型基金) / fund_bond(债券型基金) / fund_index(指数型基金) / fund_money(货币型基金)
+   - 5/51/15/56 开头或名含"ETF"→etf；名含"LOF"→lof
+   - 非上述开头且名含"混合""增长""优选""精选""蓝筹""增强"→相应场外基金
+
+4. exchange — 必填：SH(60/50/51/52/58/68开头) / SZ(00/30/15/16/18开头) / HK(5位数字) / US(字母开头)
+
+5. shares — 买入/卖出填数量；股票_dividend填红股数；分红填0；split填0；转账填0
+
+6. price — 买入/卖出时填成交单价；场内产品=市价，场外产品(基金)=单位净值(NAV)；split填比例(如3=1拆3)；分红填0；转账填0
+
+7. amount — 买入/卖出时 = shares × price（正数，不含手续费）；卖出也用正数(系统靠type字段区分)
+   现金分红时 = 分红金额；转账时 = 转账金额；红利再投填0
+
+8. fee — 用户明确提到手续费时填入（元），未提到填0（系统自动计算）
+
+9. trade_date — 格式 YYYY-MM-DD，年份缺失用${year}
+
+10. note — 可选备注，无特殊信息填空字符串
+
+=== 输出示例（多条） ===
 [
   {
     "type": "buy",
@@ -84,20 +121,75 @@ function buildParsePrompt(text) {
     "amount": 36500,
     "trade_date": "${year}-03-15",
     "note": ""
+  },
+  {
+    "type": "sell",
+    "product_name": "招商银行",
+    "product_code": "600036",
+    "product_type": "stock",
+    "exchange": "SH",
+    "shares": 500,
+    "price": 38.20,
+    "fee": 5,
+    "amount": 19100,
+    "trade_date": "${year}-04-20",
+    "note": "部分止盈"
+  },
+  {
+    "type": "dividend",
+    "product_name": "招商银行",
+    "product_code": "600036",
+    "product_type": "stock",
+    "exchange": "SH",
+    "shares": 0,
+    "price": 0,
+    "fee": 0,
+    "amount": 500,
+    "trade_date": "${year}-06-01",
+    "note": "现金分红"
+  },
+  {
+    "type": "stock_dividend",
+    "product_name": "贵州茅台",
+    "product_code": "600519",
+    "product_type": "stock",
+    "exchange": "SH",
+    "shares": 100,
+    "price": 0,
+    "fee": 0,
+    "amount": 0,
+    "trade_date": "${year}-07-15",
+    "note": "10送1红股"
+  },
+  {
+    "type": "split",
+    "product_name": "通信ETF",
+    "product_code": "515880",
+    "product_type": "etf",
+    "exchange": "SH",
+    "shares": 0,
+    "price": 3,
+    "fee": 0,
+    "amount": 0,
+    "trade_date": "${year}-08-02",
+    "note": "1拆3"
+  },
+  {
+    "type": "transfer_in",
+    "product_name": "",
+    "product_code": "",
+    "product_type": "",
+    "exchange": "",
+    "shares": 0,
+    "price": 0,
+    "fee": 0,
+    "amount": 50000,
+    "trade_date": "${year}-09-10",
+    "note": "银证转入"
   }
 ]
 
-字段说明：
-- type: buy(买入)/sell(卖出)/dividend(现金分红)/stock_dividend(红利再投)/ipo_win(打新中签)/transfer_in(转入)/transfer_out(转出)/fee(手续费)/interest(利息)
-- product_code+product_name 至少填一个，尽量都补全。你凭 A 股/基金知识根据名称或代码互相推导
-- product_type 根据代码推断：stock(股票)/etf(场内ETF)/lof(LOF)/reit(REITs)/hk_stock(港股)/us_stock(美股)/fund_stock/fund_mix/fund_bond/fund_index/fund_money(场外基金)
-  — 场内产品(股票/ETF/LOF)：price=成交单价；场外产品(基金)：price=单位净值(NAV)
-- amount = shares × price，永远正数，不含 fee；卖出也用正数，靠 type='sell' 区分
-- fee: 用户未提则填0；现金分红 type=dividend, shares=0, amount=现金金额；红利再投 type=stock_dividend, shares=红股数, amount=0
-- trade_date: YYYY-MM-DD，年份缺省用${year}
-- 数字不要用引号包裹
-
-用户输入：
+=== 用户输入 ===
 ${text}`;
 }
 
