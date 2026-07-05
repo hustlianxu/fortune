@@ -203,14 +203,14 @@ exports.main = async (event) => {
         const amount = Number(t.amount) || 0;
         h.total_dividend = Number((h.total_dividend + amount).toFixed(2));
       } else if (type === 'stock_dividend') {
-        // 红股入账/红利再投：增加份额，不增加成本（免费红股）
+        // 红股入账/红利再投：增加份额，不增加总成本（免费红股，成本被稀释）
         const shares = Number(t.shares) || 0;
         if (shares > 0) {
           const oldShares = h.shares;
           const newShares = oldShares + shares;
-          // 红利再投不改变成本价（股份免费获得）
           h.shares = newShares;
-          h.cost_value = Number((newShares * h.cost_price).toFixed(2));
+          // 关键：cost_value 不变（免费红股不增加总投入），cost_price 自动降低
+          // 例如：1000股成本¥10，红股100股 → 1100股成本仍是¥10000，成本价降至¥9.09
           h.is_cleared = false;
         }
       } else if (type === 'split') {
